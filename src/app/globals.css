@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+:root {
+  --ground: #0a0d0c;
+  --surface: #131816;
+  --surface-2: #1a211e;
+  --line: #232b28;
+  --line-soft: #1b2320;
+  --ink: #e9efec;
+  --ink-dim: #b4c0bb;
+  --muted: #879490;
+
+  --climb: #00e39d;
+  --climb-dim: #0b5f45;
+  --on-climb: #052018;
+  --system: #8b6fff;
+  --system-dim: #2e2456;
+  --warn: #f2a93b;
+
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Public Sans", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+body {
+  background-color: var(--ground);
+  color: var(--ink);
+  font-family: var(--f-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: var(--f-display);
+  font-variation-settings: "wdth" 108;
+}
+
+.font-mono-tech {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.eyebrow::before {
+  content: "";
+  width: 20px;
+  height: 1px;
+  background: var(--climb);
+  flex: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--ground);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--climb-dim);
+}
