@@ -48,6 +48,35 @@ function triggerHaptic(pattern: number | number[]): void {
 }
 
 /**
+ * Subtle tactile micro-click + 15ms haptic tap for UI navigation and toggles.
+ */
+export function playTick(): void {
+  triggerHaptic(15);
+  if (buzzerMuted) return;
+
+  const ctx = unlockAudio();
+  if (!ctx) return;
+
+  try {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(640, now);
+    osc.frequency.exponentialRampToValueAtTime(920, now + 0.025);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.032);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.036);
+  } catch {
+    // Ignore audio errors
+  }
+}
+
+/**
  * Crisp ascending dual-tone chime (880Hz -> 1320Hz, ~120ms) + short vibration.
  * Fired on stairwell Tap-In (Floor 1).
  */

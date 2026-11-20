@@ -5,9 +5,16 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ClimbWordmark } from "@/components/ClimbMark";
 import {
+  MobileOnboarding,
+  SAMPLE_BUILDINGS,
+  UserLocalProfile,
+} from "@/components/MobileOnboarding";
+import { WhoopMobileShell } from "@/components/WhoopMobileShell";
+import {
   getBuzzerMuted,
   playSpoofAlert,
   playTapIn,
+  playTick,
   playVerified,
   setBuzzerMuted,
   unlockAudio,
@@ -157,6 +164,12 @@ function MobileControllerInner() {
 
   const [roomCode, setRoomCode] = useState(initialRoom);
   const [department, setDepartment] = useState<DepartmentName>("Engineering");
+  const [devMode, setDevMode] = useState(false);
+  const [profile, setProfile] = useState<UserLocalProfile | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [dailyFloors, setDailyFloors] = useState(6);
+  const [recentTrips, setRecentTrips] = useState<TripRecord[]>([]);
   const [sensorsEnabled, setSensorsEnabled] = useState(false);
   const [sensorStatus, setSensorStatus] = useState(
     "Tap Enable Motion Sensors to start live streaming"
@@ -250,20 +263,42 @@ function MobileControllerInner() {
     activeTagSerialRef.current = activeTagSerial;
   }, [activeTagSerial]);
 
-  // Safely check Web NFC support on mount + unlock AudioContext on first user interaction
+  // Safely check Web NFC support on mount + load local-only user profile + unlock AudioContext
   useEffect(() => {
     if (typeof window !== "undefined") {
       setMuted(getBuzzerMuted());
       if ("NDEFReader" in window) {
         setWebNfcSupported(true);
       }
+      try {
+        const raw = localStorage.getItem("climbcoin_profile_v1");
+        if (raw) {
+          const parsed = JSON.parse(raw) as UserLocalProfile;
+          if (parsed && parsed.name && parsed.department) {
+            setProfile(parsed);
+            setDepartment(parsed.department);
+          }
+        } else if (anchorParam || qrFloorParam) {
+          // Auto-bypass onboarding when a physical NFC/QR door sticker launches /mobile
+          const fallbackProfile: UserLocalProfile = {
+            name: "Climber",
+            buildingId: SAMPLE_BUILDINGS[0].id,
+            buildingName: SAMPLE_BUILDINGS[0].name,
+            department: "Engineering",
+          };
+          setProfile(fallbackProfile);
+        }
+      } catch {
+        // Ignore storage errors
+      }
+      setProfileLoaded(true);
       const onFirstTap = () => {
         unlockAudio();
       };
       window.addEventListener("pointerdown", onFirstTap, { once: true });
       return () => window.removeEventListener("pointerdown", onFirstTap);
     }
-  }, []);
+  }, [anchorParam, qrFloorParam]);
 
   const toggleMute = () => {
     unlockAudio();
@@ -803,6 +838,7 @@ function MobileControllerInner() {
           throw new Error(data.error || "Verification request failed");
         }
         setLastVerdict(data);
+        setRecentTrips((prev) => [data, ...prev].slice(0, 12));
 
         try {
           localStorage.removeItem(ACTIVE_TRIP_STORAGE_KEY);
@@ -813,6 +849,9 @@ function MobileControllerInner() {
         if (data.verdict === "VERIFIED_CLIMB") {
           playVerified();
           setWalletPoints((pts) => pts + (data.pointsAwarded ?? 0));
+          setDailyFloors(
+            (f) => f + Math.max(1, Math.abs(data.endFloor - data.startFloor))
+          );
           if (!streakBumpedRef.current) {
             streakBumpedRef.current = true;
             setStreakDays((d) => d + 1);
@@ -1196,9 +1235,70 @@ function MobileControllerInner() {
       : "border-[#F2A93B] bg-[#F2A93B]/15 text-[#F2A93B]";
   };
 
+  const handleSaveProfile = (next: UserLocalProfile) => {
+    setProfile(next);
+    setDepartment(next.department);
+    setEditingProfile(false);
+    try {
+      localStorage.setItem("climbcoin_profile_v1", JSON.stringify(next));
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  if (!devMode && profileLoaded && (!profile || editingProfile)) {
+    return (
+      <MobileOnboarding
+        initialProfile={profile}
+        onComplete={handleSaveProfile}
+      />
+    );
+  }
+
+  if (!devMode && profile) {
+    return (
+      <WhoopMobileShell
+        profile={profile}
+        onEditProfile={() => setEditingProfile(true)}
+        onToggleDevMode={() => setDevMode(true)}
+        muted={muted}
+        onToggleMute={toggleMute}
+        sensorsEnabled={sensorsEnabled}
+        onEnableSensors={handleEnableSensors}
+        isClimbing={isClimbing}
+        verifying={verifying}
+        steps={steps}
+        cadenceSpm={cadenceSpm}
+        verticalBounce={verticalBounce}
+        liveElevationM={liveElevationM}
+        displayFloor={displayFloor}
+        elapsedSec={elapsedSec}
+        movementState={movementState}
+        walletPoints={walletPoints}
+        streakDays={streakDays}
+        dailyFloors={dailyFloors}
+        lastVerdict={lastVerdict}
+        recentTrips={recentTrips}
+        redeemedIds={redeemedIds}
+        nfcBanner={nfcBanner}
+        webNfcSupported={webNfcSupported}
+        webNfcArmed={webNfcArmed}
+        onArmWebNfc={handleArmWebNfc}
+        onStartClimb={() =>
+          handleTapInFloor1({ anchorId: "F1", tapSource: "MANUAL" })
+        }
+        onFinishClimb={() =>
+          handleTapOutFloor4({ anchorId: "F4", tapSource: activeTapSource })
+        }
+        onResetVerdict={() => setLastVerdict(null)}
+        onRedeem={handleRedeem}
+      />
+    );
+  }
+
   return (
     <main className="mx-auto flex min-h-screen max-w-[430px] flex-col gap-3.5 px-4 py-5">
-      {/* Native Top Bar: Brand + Buzzer Mute + Streak + Points Wallet */}
+      {/* Dev Mode Top Bar: Brand + App Toggle + Buzzer Mute + Points */}
       <header className="flex items-center justify-between gap-2 border-b border-[#1B2320] pb-3.5">
         <div className="flex items-center gap-2">
           <Link
@@ -1214,6 +1314,18 @@ function MobileControllerInner() {
         <div className="flex items-center gap-1.5">
           <button
             type="button"
+            onClick={() => {
+              playTick();
+              setDevMode(false);
+            }}
+            title="Return to Whoop Consumer UI"
+            className="font-mono-tech rounded-full border border-[#8B6FFF] bg-[#2E2456] px-2 py-1 text-[9.5px] font-bold uppercase tracking-wider text-[#E9EFEC] transition hover:bg-[#3A2D6B] active:scale-90"
+          >
+            APP UI
+          </button>
+
+          <button
+            type="button"
             onClick={toggleMute}
             aria-label={muted ? "Unmute buzzer sound" : "Mute buzzer sound"}
             title={muted ? "Unmute buzzer audio" : "Mute buzzer audio"}
@@ -1227,9 +1339,6 @@ function MobileControllerInner() {
             <span>{muted ? "MUTE" : "SFX"}</span>
           </button>
 
-          <span className="font-mono-tech rounded-full border border-[#0B5F45] bg-[#0B5F45]/40 px-2.5 py-1 text-[11px] font-semibold text-[#00E39D]">
-            {streakDays}d Streak
-          </span>
           <span className="font-mono-tech rounded-full border border-[#232B28] bg-[#131816] px-2.5 py-1 text-[11px] font-bold text-[#E9EFEC]">
             <span className="text-[#00E39D]">{walletPoints}</span> pts
           </span>
