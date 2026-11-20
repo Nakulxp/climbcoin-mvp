@@ -1469,6 +1469,7 @@ function MobileControllerInner() {
     return (
       <WhoopMobileShell
         profile={profile}
+        onSaveProfile={handleSaveProfile}
         onEditProfile={() => setEditingProfile(true)}
         onToggleDevMode={() => setDevMode(true)}
         muted={muted}

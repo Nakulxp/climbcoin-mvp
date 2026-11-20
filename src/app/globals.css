@@ -205,6 +205,62 @@ body {
   animation: springPopCheck 0.48s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
+/* Smooth non-zooming native tab transition */
+@keyframes tabFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-tab-fade {
+  animation: tabFadeIn 0.2s ease-out both;
+}
+
+/* Celebratory top-down confetti shower */
+@keyframes confettiFall {
+  0% {
+    transform: translate3d(0, -12vh, 0) rotate(0deg);
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--drift, 20px), 105vh, 0) rotate(540deg);
+    opacity: 0;
+  }
+}
+
+.animate-confetti-fall {
+  animation: confettiFall var(--dur, 1.6s) cubic-bezier(0.22, 0.61, 0.36, 1)
+    var(--delay, 0s) forwards;
+}
+
+/* Quick onboarding splash pulse */
+@keyframes splashPulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-splash {
+  animation: splashPulse 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 .animate-swiggy-pop {
   animation: swiggyPop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }

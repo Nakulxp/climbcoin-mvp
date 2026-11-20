@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { ClimbHubHero } from "@/components/ClimbHubHero";
+import { useEffect, useState } from "react";
+import { ClimbLogoSvg } from "@/components/ClimbMark";
+import { AVATAR_PRESETS, ProfileAvatar } from "@/components/ProfileAvatar";
 import { playTapIn, playTick } from "@/lib/buzzer";
 import { DepartmentName } from "@/lib/types";
 
 export interface UserLocalProfile {
   name: string;
+  avatarId?: string;
   buildingId: string;
   buildingName: string;
   department: DepartmentName;
@@ -17,7 +19,7 @@ export const SAMPLE_BUILDINGS = [
     id: "one-horizon",
     name: "One Horizon Tower",
     floors: "18 Floors",
-    badge: "2.5x Rush Active",
+    badge: "2.5x Rush",
   },
   {
     id: "prestige-b",
@@ -29,7 +31,7 @@ export const SAMPLE_BUILDINGS = [
     id: "rmz-4a",
     name: "RMZ Ecoworld · 4A",
     floors: "14 Floors",
-    badge: "ESG Certified",
+    badge: "ESG Tower",
   },
   {
     id: "embassy-g2",
@@ -39,7 +41,7 @@ export const SAMPLE_BUILDINGS = [
   },
 ];
 
-const DEPARTMENTS: DepartmentName[] = [
+export const DEPARTMENTS: DepartmentName[] = [
   "Engineering",
   "Product",
   "Operations",
@@ -56,7 +58,16 @@ export function MobileOnboarding({
   initialProfile,
   onComplete,
 }: MobileOnboardingProps) {
-  const [name, setName] = useState(initialProfile?.name ?? "");
+  // Step 0 = Quick splash screen, Step 1 = Name + Avatar, Step 2 = Building, Step 3 = Department
+  const [step, setStep] = useState<0 | 1 | 2 | 3>(initialProfile ? 1 : 0);
+  const [name, setName] = useState(
+    initialProfile?.name && initialProfile.name !== "Climber"
+      ? initialProfile.name
+      : ""
+  );
+  const [avatarId, setAvatarId] = useState(
+    initialProfile?.avatarId ?? AVATAR_PRESETS[0].id
+  );
   const [buildingId, setBuildingId] = useState(
     initialProfile?.buildingId ?? SAMPLE_BUILDINGS[0].id
   );
@@ -64,68 +75,140 @@ export function MobileOnboarding({
     initialProfile?.department ?? "Engineering"
   );
 
+  // Quick 1.1s animated splash intro for first-time users
+  useEffect(() => {
+    if (step !== 0) return;
+    const t = setTimeout(() => setStep(1), 1150);
+    return () => clearTimeout(t);
+  }, [step]);
+
   const selectedBuilding =
     SAMPLE_BUILDINGS.find((b) => b.id === buildingId) ?? SAMPLE_BUILDINGS[0];
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleFinish = () => {
     playTapIn();
     onComplete({
       name: name.trim() || "Climber",
+      avatarId,
       buildingId: selectedBuilding.id,
       buildingName: selectedBuilding.name,
       department,
     });
   };
 
+  if (step === 0) {
+    return (
+      <main
+        onClick={() => setStep(1)}
+        className="mx-auto flex h-[100dvh] max-w-[430px] cursor-pointer flex-col items-center justify-center overflow-hidden px-6"
+      >
+        <div className="animate-splash flex flex-col items-center">
+          <div className="relative flex items-center justify-center">
+            <span className="animate-halo-ripple absolute h-32 w-32 rounded-full border border-[#00E39D]/50" />
+            <ClimbLogoSvg size={82} />
+          </div>
+          <div className="font-display mt-5 text-2xl font-extrabold tracking-tight text-[#E9EFEC]">
+            ClimbCoin
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-[430px] flex-col justify-between px-5 py-7">
-      <div className="animate-swiggy-pop">
-        <div className="mb-1 font-mono-tech text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8B6FFF]">
-          Welcome to ClimbCoin
-        </div>
-        <h1 className="font-display text-3xl font-extrabold leading-tight tracking-tight text-[#E9EFEC]">
-          Set up your Tower Pass
-        </h1>
-        <p className="mt-1.5 text-xs leading-relaxed text-[#879490]">
-          Personalize your climb rings and pick your office building. Takes 10
-          seconds.
-        </p>
+    <main className="mx-auto flex h-[100dvh] max-w-[430px] flex-col justify-between overflow-hidden px-6 py-8">
+      {/* Top Progress Dots + Back */}
+      <div className="flex items-center justify-between">
+        {step > 1 ? (
+          <button
+            type="button"
+            onClick={() => {
+              playTick();
+              setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : 1));
+            }}
+            className="font-mono-tech text-xs text-[#879490] transition hover:text-[#E9EFEC]"
+          >
+            ← Back
+          </button>
+        ) : (
+          <div className="w-10" />
+        )}
 
-        <div className="my-2 scale-[0.72]">
-          <ClimbHubHero mode="READY" />
+        <div className="flex items-center gap-1.5">
+          {[1, 2, 3].map((dot) => (
+            <span
+              key={dot}
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                step === dot
+                  ? "w-6 bg-[#00E39D]"
+                  : step > dot
+                  ? "w-2 bg-[#00E39D]/50"
+                  : "w-2 bg-[#232B28]"
+              }`}
+            />
+          ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* 1. First Name (strictly local-only per climbcoin-ops privacy boundary) */}
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <label
-                htmlFor="climber-name"
-                className="font-mono-tech text-[10px] uppercase tracking-[0.14em] text-[#B4C0BB]"
-              >
-                Your First Name
-              </label>
-              <span className="font-mono-tech text-[9.5px] text-[#00E39D]">
-                🔒 On-device only
-              </span>
+        <div className="w-10" />
+      </div>
+
+      {/* Step Content */}
+      <div key={step} className="animate-tab-fade my-auto flex flex-col gap-6">
+        {step === 1 && (
+          <>
+            <div className="flex flex-col items-center text-center">
+              <ProfileAvatar name={name || "You"} avatarId={avatarId} size={68} />
+              <h1 className="font-display mt-5 text-[28px] font-extrabold leading-tight text-[#E9EFEC]">
+                What&apos;s your name?
+              </h1>
             </div>
+
             <input
-              id="climber-name"
               type="text"
-              placeholder="e.g. Nakul"
+              autoFocus
+              placeholder="Enter your name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-xl border border-[#232B28] bg-[#131816] px-3.5 py-3 text-sm font-semibold text-[#E9EFEC] placeholder-[#879490]/60 outline-none transition focus:border-[#00E39D]"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && name.trim()) {
+                  playTick();
+                  setStep(2);
+                }
+              }}
+              className="w-full rounded-2xl border border-[#232B28] bg-[#131816] px-4 py-4 text-center text-base font-bold text-[#E9EFEC] placeholder-[#879490]/50 outline-none transition focus:border-[#00E39D]"
             />
-          </div>
 
-          {/* 2. Building Selection */}
-          <div>
-            <div className="mb-1.5 font-mono-tech text-[10px] uppercase tracking-[0.14em] text-[#B4C0BB]">
-              Select Your Building
+            {/* Minimal Avatar Color Picker */}
+            <div className="flex items-center justify-center gap-3">
+              {AVATAR_PRESETS.map((preset) => {
+                const active = preset.id === avatarId;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    aria-label={`Select ${preset.id} avatar`}
+                    onClick={() => {
+                      playTick();
+                      setAvatarId(preset.id);
+                    }}
+                    className={`h-8 w-8 rounded-full transition active:scale-90 ${
+                      active ? "scale-110 ring-2 ring-white" : "opacity-65"
+                    }`}
+                    style={{ background: preset.bg }}
+                  />
+                );
+              })}
             </div>
-            <div className="grid grid-cols-2 gap-2">
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <h1 className="font-display text-center text-[28px] font-extrabold leading-tight text-[#E9EFEC]">
+              Select your building
+            </h1>
+
+            <div className="flex flex-col gap-2.5">
               {SAMPLE_BUILDINGS.map((b) => {
                 const active = b.id === buildingId;
                 return (
@@ -136,42 +219,32 @@ export function MobileOnboarding({
                       playTick();
                       setBuildingId(b.id);
                     }}
-                    className={`rounded-xl border p-2.5 text-left transition active:scale-[0.97] ${
+                    className={`flex items-center justify-between rounded-2xl border px-4 py-4 text-left transition active:scale-[0.98] ${
                       active
-                        ? "border-[#00E39D] bg-[#0B5F45]/30 shadow-[0_0_16px_rgba(0,227,157,0.12)]"
-                        : "border-[#232B28] bg-[#131816] hover:border-[#232B28]/80"
+                        ? "border-[#00E39D] bg-[#0B5F45]/30"
+                        : "border-[#232B28] bg-[#131816]"
                     }`}
                   >
-                    <div className="truncate text-xs font-bold text-[#E9EFEC]">
+                    <span className="font-display text-sm font-extrabold text-[#E9EFEC]">
                       {b.name}
-                    </div>
-                    <div className="font-mono-tech mt-1 flex items-center justify-between text-[9.5px]">
-                      <span className="text-[#879490]">{b.floors}</span>
-                      <span
-                        className={
-                          active ? "text-[#00E39D]" : "text-[#8B6FFF]"
-                        }
-                      >
-                        {b.badge}
-                      </span>
-                    </div>
+                    </span>
+                    <span className="font-mono-tech text-[10.5px] text-[#879490]">
+                      {b.floors}
+                    </span>
                   </button>
                 );
               })}
             </div>
-          </div>
+          </>
+        )}
 
-          {/* 3. Anonymous Department Pill Picker */}
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="font-mono-tech text-[10px] uppercase tracking-[0.14em] text-[#B4C0BB]">
-                Department (Team Leaderboard)
-              </span>
-              <span className="font-mono-tech text-[9.5px] text-[#879490]">
-                Anonymous
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
+        {step === 3 && (
+          <>
+            <h1 className="font-display text-center text-[28px] font-extrabold leading-tight text-[#E9EFEC]">
+              Your department
+            </h1>
+
+            <div className="flex flex-wrap justify-center gap-2.5">
               {DEPARTMENTS.map((dept) => {
                 const active = dept === department;
                 return (
@@ -182,7 +255,7 @@ export function MobileOnboarding({
                       playTick();
                       setDepartment(dept);
                     }}
-                    className={`font-mono-tech rounded-full border px-3 py-1.5 text-[11px] font-semibold transition active:scale-95 ${
+                    className={`font-display rounded-full border px-5 py-3 text-sm font-bold transition active:scale-95 ${
                       active
                         ? "border-[#8B6FFF] bg-[#2E2456] text-[#E9EFEC]"
                         : "border-[#232B28] bg-[#131816] text-[#879490]"
@@ -193,16 +266,28 @@ export function MobileOnboarding({
                 );
               })}
             </div>
-          </div>
-
-          <button
-            type="submit"
-            className="font-display mt-2 w-full rounded-full bg-[#00E39D] py-3.5 text-base font-extrabold text-[#052018] shadow-[0_8px_24px_rgba(0,227,157,0.28)] transition hover:bg-[#2BF0B2] active:scale-[0.97]"
-          >
-            Enter {selectedBuilding.name.split("·")[0].trim()} →
-          </button>
-        </form>
+          </>
+        )}
       </div>
+
+      {/* Bottom Action Button */}
+      <button
+        type="button"
+        onClick={() => {
+          if (step === 1) {
+            playTick();
+            setStep(2);
+          } else if (step === 2) {
+            playTick();
+            setStep(3);
+          } else {
+            handleFinish();
+          }
+        }}
+        className="font-display w-full rounded-full bg-[#00E39D] py-4 text-base font-extrabold text-[#052018] shadow-[0_8px_24px_rgba(0,227,157,0.28)] transition active:scale-95"
+      >
+        {step === 3 ? "Start Climbing" : "Continue"}
+      </button>
     </main>
   );
 }

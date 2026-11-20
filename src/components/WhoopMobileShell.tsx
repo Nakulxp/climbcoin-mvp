@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ClimbHubHero } from "@/components/ClimbHubHero";
 import { ClimbLogoSvg } from "@/components/ClimbMark";
-import { NfcCardScanModal } from "@/components/NfcCardScanModal";
+import { ConfettiBurst } from "@/components/ConfettiBurst";
 import { UserLocalProfile } from "@/components/MobileOnboarding";
+import { NfcCardScanModal } from "@/components/NfcCardScanModal";
+import { ProfileAvatar } from "@/components/ProfileAvatar";
 import {
   ClaimableReward,
   RewardClaimModal,
 } from "@/components/RewardClaimModal";
+import { SettingsSheet } from "@/components/SettingsSheet";
 import { playTick } from "@/lib/buzzer";
 import {
   fireQuirkyBrowserNotification,
@@ -24,20 +27,20 @@ const CAFE_REWARDS: ClaimableReward[] = [
     title: "Specialty Iced Latte & Espresso",
     partner: "Ground Floor Roastery",
     cost: 150,
-    tag: "BARISTA PICK",
+    tag: "BARISTA",
     image: "/rewards/cafe-espresso.jpg",
     codePrefix: "ESP",
-    description: "Any handcrafted espresso or iced latte at the lobby coffee bar.",
+    description: "Any handcrafted espresso or iced latte.",
   },
   {
     id: "croissant-combo",
     title: "Cold Brew & Butter Croissant",
     partner: "Lobby Artisan Bakery",
     cost: 220,
-    tag: "MORNING FUEL",
+    tag: "MORNING",
     image: "/rewards/bakery-croissant.jpg",
     codePrefix: "CBW",
-    description: "Freshly baked flaky butter croissant paired with craft cold brew.",
+    description: "Flaky butter croissant paired with cold brew.",
   },
   {
     id: "healthy-bowl",
@@ -47,21 +50,21 @@ const CAFE_REWARDS: ClaimableReward[] = [
     tag: "POPULAR",
     image: "/rewards/healthy-bowl.jpg",
     codePrefix: "BWL",
-    description: "Chef-crafted warm quinoa, avocado & roasted sweet potato bowl.",
+    description: "Warm quinoa, avocado & roasted sweet potato bowl.",
   },
 ];
 
 const CASHBACK_TIERS: ClaimableReward[] = [
   {
     id: "disc-50",
-    title: "₹50 Instant Café Discount",
+    title: "₹50 Instant Discount",
     partner: "Any Tower Partner",
     cost: 100,
     tag: "100 COINS",
     discountLabel: "₹50 OFF",
     image: "/rewards/cashback-card.jpg",
     codePrefix: "OFF50",
-    description: "Apply at checkout at any lobby café or kiosk for ₹50 instant off.",
+    description: "₹50 off at any lobby café or kiosk.",
   },
   {
     id: "cashback-150",
@@ -72,7 +75,7 @@ const CASHBACK_TIERS: ClaimableReward[] = [
     discountLabel: "₹150 BACK",
     image: "/rewards/cashback-card.jpg",
     codePrefix: "CB150",
-    description: "Redeemable as ₹150 cashback on food court & wellness partners.",
+    description: "₹150 cashback on food court & wellness partners.",
   },
   {
     id: "disc-25pct",
@@ -83,13 +86,14 @@ const CASHBACK_TIERS: ClaimableReward[] = [
     discountLabel: "25% OFF",
     image: "/rewards/cashback-card.jpg",
     codePrefix: "VIP25",
-    description: "Flat 25% discount on your next atrium bistro order or gym pass.",
+    description: "Flat 25% off your next atrium bistro order.",
   },
 ];
 
 interface LeaderboardRow {
   id: string;
   name: string;
+  avatarId: string;
   dept: string;
   floors: number;
   streak: number;
@@ -97,17 +101,18 @@ interface LeaderboardRow {
 }
 
 const SEED_LEADERBOARD: Omit<LeaderboardRow, "isUser">[] = [
-  { id: "l1", name: "Aarav M.", dept: "Engineering", floors: 24, streak: 12 },
-  { id: "l2", name: "Priya S.", dept: "Product", floors: 19, streak: 9 },
-  { id: "l3", name: "Rohan K.", dept: "Design", floors: 15, streak: 7 },
-  { id: "l4", name: "Meera T.", dept: "Operations", floors: 11, streak: 4 },
-  { id: "l5", name: "Kabir D.", dept: "Finance", floors: 7, streak: 3 },
+  { id: "l1", name: "Aarav M.", avatarId: "amber", dept: "Engineering", floors: 24, streak: 12 },
+  { id: "l2", name: "Priya S.", avatarId: "violet", dept: "Product", floors: 19, streak: 9 },
+  { id: "l3", name: "Rohan K.", avatarId: "cyan", dept: "Design", floors: 15, streak: 7 },
+  { id: "l4", name: "Meera T.", avatarId: "rose", dept: "Operations", floors: 11, streak: 4 },
+  { id: "l5", name: "Kabir D.", avatarId: "emerald", dept: "Finance", floors: 7, streak: 3 },
 ];
 
 type MobileTab = "HOME" | "LEADERBOARD" | "CLIMB" | "REWARDS";
 
 interface WhoopMobileShellProps {
   profile: UserLocalProfile;
+  onSaveProfile: (next: UserLocalProfile) => void;
   onEditProfile: () => void;
   onToggleDevMode: () => void;
   muted: boolean;
@@ -144,6 +149,7 @@ interface WhoopMobileShellProps {
 
 export function WhoopMobileShell({
   profile,
+  onSaveProfile,
   onEditProfile,
   onToggleDevMode,
   muted,
@@ -173,15 +179,14 @@ export function WhoopMobileShell({
 }: WhoopMobileShellProps) {
   const [activeTab, setActiveTab] = useState<MobileTab>("CLIMB");
   const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedReward, setSelectedReward] = useState<ClaimableReward | null>(
     null
   );
   const [claimedCodes, setClaimedCodes] = useState<Record<string, string>>({});
   const [activeToast, setActiveToast] = useState<QuirkyAlert | null>(null);
-  const [notifEnabled, setNotifEnabled] = useState(false);
   const prevMultiplierRef = useRef<number>(liveMultiplier);
 
-  // Determine which of the ClimbHub stages to display
   const climbStage: "READY" | "CLIMBING" | "EARNED" | "SPOOF" = isClimbing
     ? "CLIMBING"
     : lastVerdict
@@ -190,7 +195,6 @@ export function WhoopMobileShell({
       : "SPOOF"
     : "READY";
 
-  // Smoothly fill the 8 purple leaves based on average 4-floor climb time (~32s) or real elevation
   const timeProgress = Math.min(1, elapsedSec / 32);
   const elevProgress = Math.min(1, liveElevationM / 10.5);
   const climbProgress = Math.min(
@@ -198,7 +202,7 @@ export function WhoopMobileShell({
     Math.max(0.125, Math.max(timeProgress, elevProgress))
   );
 
-  // Auto-arm NFC by default when on the ClimbHub page
+  // Auto-arm NFC by default when on ClimbHub
   useEffect(() => {
     if (activeTab !== "CLIMB" || !webNfcSupported || webNfcArmed) return;
 
@@ -213,7 +217,7 @@ export function WhoopMobileShell({
     return () => window.removeEventListener("pointerdown", onFirstGesture);
   }, [activeTab, webNfcSupported, webNfcArmed, onArmWebNfc]);
 
-  // Trigger Zomato-style quirky multiplier notification whenever building multiplier changes!
+  // Trigger Zomato-style quirky multiplier alert when multiplier updates
   useEffect(() => {
     if (prevMultiplierRef.current !== liveMultiplier) {
       prevMultiplierRef.current = liveMultiplier;
@@ -225,37 +229,39 @@ export function WhoopMobileShell({
     }
   }, [liveMultiplier]);
 
-  // Auto-dismiss in-app Zomato-style toast after 5.5s
   useEffect(() => {
     if (!activeToast) return;
-    const t = setTimeout(() => setActiveToast(null), 5500);
+    const t = setTimeout(() => setActiveToast(null), 5000);
     return () => clearTimeout(t);
   }, [activeToast]);
 
-  const handleBellClick = async () => {
-    playTick();
-    const perm = await requestBrowserNotificationPermission();
-    if (perm === "granted") {
-      setNotifEnabled(true);
-    }
+  const handleTestNotification = async () => {
+    await requestBrowserNotificationPermission();
     const previewMultiplier = liveMultiplier >= 1.5 ? liveMultiplier : 2.5;
     const alert = pickQuirkyAlert(previewMultiplier);
     setActiveToast(alert);
     fireQuirkyBrowserNotification(alert);
   };
 
-  // Build live Tower Leaderboard incorporating current user
+  // Build live Tower Leaderboard incorporating current user & their avatar
   const leaderboard = useMemo<LeaderboardRow[]>(() => {
     const userRow: LeaderboardRow = {
       id: "you",
-      name: profile.name || "You",
+      name: profile.name || "Climber",
+      avatarId: profile.avatarId ?? "emerald",
       dept: profile.department,
       floors: Math.max(dailyFloors, 8),
       streak: streakDays,
       isUser: true,
     };
     return [...SEED_LEADERBOARD, userRow].sort((a, b) => b.floors - a.floors);
-  }, [profile.name, profile.department, dailyFloors, streakDays]);
+  }, [
+    profile.name,
+    profile.avatarId,
+    profile.department,
+    dailyFloors,
+    streakDays,
+  ]);
 
   const userRank = leaderboard.findIndex((r) => r.isUser) + 1;
 
@@ -281,20 +287,24 @@ export function WhoopMobileShell({
     onRedeem(reward.id, reward.cost);
   };
 
-  // Lock viewport strictly to 100dvh with zero scroll on CLIMB page
   const isLockedViewport = activeTab === "CLIMB";
 
   return (
     <main
       className={
         isLockedViewport
-          ? "mx-auto flex h-[100dvh] max-w-[430px] flex-col justify-between overflow-hidden px-5 pb-24 pt-4"
+          ? "mx-auto flex h-[100dvh] max-w-[430px] flex-col justify-between overflow-hidden px-5 pb-24 pt-6"
           : "mx-auto flex min-h-[100dvh] max-w-[430px] flex-col justify-between px-5 pb-28 pt-5"
       }
     >
+      {/* Celebratory Confetti Shower on Verified Points Earned */}
+      {activeTab === "CLIMB" && climbStage === "EARNED" && (
+        <ConfettiBurst key={lastVerdict?.id ?? "earned"} />
+      )}
+
       {/* Zomato-Style Quirky Multiplier Floating Toast Banner */}
       {activeToast && (
-        <div className="animate-swiggy-pop fixed left-1/2 top-4 z-50 w-[calc(100%-28px)] max-w-[400px] -translate-x-1/2 rounded-2xl border border-white/15 bg-[#121916]/95 p-3.5 shadow-[0_14px_40px_rgba(0,0,0,0.85)] backdrop-blur-xl">
+        <div className="animate-tab-fade fixed left-1/2 top-4 z-50 w-[calc(100%-28px)] max-w-[400px] -translate-x-1/2 rounded-2xl border border-white/15 bg-[#121916]/95 p-3.5 shadow-[0_14px_40px_rgba(0,0,0,0.85)] backdrop-blur-xl">
           <div className="flex items-start justify-between gap-2.5">
             <div className="min-w-0">
               <div
@@ -319,36 +329,25 @@ export function WhoopMobileShell({
               ✕
             </button>
           </div>
-          {activeTab !== "CLIMB" && (
-            <button
-              type="button"
-              onClick={() => {
-                playTick();
-                setActiveTab("CLIMB");
-                setActiveToast(null);
-              }}
-              className="font-mono-tech mt-2.5 w-full rounded-full bg-[#00E39D] py-1.5 text-[10.5px] font-extrabold text-[#052018]"
-            >
-              Climb Now →
-            </button>
-          )}
         </div>
       )}
 
-      {/* Minimal Top Utility Bar: Discrete Icons Only on CLIMB; Clean Bar on Other Tabs */}
-      <header className="mb-2 flex shrink-0 items-center justify-between">
-        {activeTab === "CLIMB" ? (
-          <div className="h-7" />
-        ) : (
+      {/* Clean Profile + Settings Header (Shown ONLY on Home, Leaderboard & Rewards — NOT on ClimbHub!) */}
+      {activeTab !== "CLIMB" && (
+        <header className="mb-4 flex shrink-0 items-center justify-between">
           <button
             type="button"
             onClick={() => {
               playTick();
-              onEditProfile();
+              setSettingsOpen(true);
             }}
-            className="flex items-center gap-2 text-left transition active:scale-95"
+            className="flex items-center gap-2.5 text-left transition active:scale-95"
           >
-            <ClimbLogoSvg size={26} />
+            <ProfileAvatar
+              name={profile.name}
+              avatarId={profile.avatarId}
+              size={34}
+            />
             <div className="min-w-0">
               <div className="font-display truncate text-sm font-extrabold text-[#E9EFEC]">
                 {profile.name}
@@ -358,138 +357,37 @@ export function WhoopMobileShell({
               </div>
             </div>
           </button>
-        )}
 
-        {/* Minimal Basal Utility Icons */}
-        <div className="flex items-center gap-1.5">
-          {/* Zomato-Style Multiplier Alert Bell Icon */}
-          <button
-            type="button"
-            onClick={() => void handleBellClick()}
-            aria-label="Multiplier alerts"
-            title="Enable / Preview Quirky Multiplier Notification"
-            className={`relative grid h-8 w-8 place-items-center rounded-full border bg-[#131816]/80 transition active:scale-90 ${
-              notifEnabled || liveMultiplier >= 1.5
-                ? "border-[#00E39D]/50 text-[#00E39D]"
-                : "border-white/[0.08] text-[#879490] hover:text-[#E9EFEC]"
-            }`}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-            </svg>
-            {liveMultiplier >= 1.5 && (
-              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#00E39D]" />
-            )}
-          </button>
-
-          {/* Help (?) Icon -> Opens NFC How-To & 3D Card Drawer */}
+          {/* Single Clean Settings Gear Icon */}
           <button
             type="button"
             onClick={() => {
               playTick();
-              setHelpDrawerOpen(true);
+              setSettingsOpen(true);
             }}
-            aria-label="How NFC works"
-            title="NFC Guide & Simulator"
-            className="grid h-8 w-8 place-items-center rounded-full border border-white/[0.08] bg-[#131816]/80 text-[#879490] transition hover:border-[#00E39D]/50 hover:text-[#E9EFEC] active:scale-90"
+            aria-label="Settings"
+            className="grid h-9 w-9 place-items-center rounded-full border border-white/[0.08] bg-[#131816] text-[#879490] transition hover:text-[#E9EFEC] active:scale-90"
           >
             <svg
-              width="14"
-              height="14"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2.2"
+              strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <circle cx="12" cy="12" r="10" />
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
           </button>
+        </header>
+      )}
 
-          {/* Mute/Unmute Icon */}
-          <button
-            type="button"
-            onClick={onToggleMute}
-            aria-label="Toggle sound"
-            className="grid h-8 w-8 place-items-center rounded-full border border-white/[0.08] bg-[#131816]/80 text-[#879490] transition hover:text-[#E9EFEC] active:scale-90"
-          >
-            {muted ? (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <line x1="23" y1="9" x2="17" y2="15" />
-                <line x1="17" y1="9" x2="23" y2="15" />
-              </svg>
-            ) : (
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-              </svg>
-            )}
-          </button>
-
-          {/* Subtle DEV Icon */}
-          <button
-            type="button"
-            onClick={() => {
-              playTick();
-              onToggleDevMode();
-            }}
-            aria-label="Developer mode"
-            title="Switch to Developer Telemetry Mode"
-            className="grid h-8 w-8 place-items-center rounded-full border border-white/[0.08] bg-[#131816]/80 text-[#879490] transition hover:border-[#8B6FFF] hover:text-[#E9EFEC] active:scale-90"
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="16 18 22 12 16 6" />
-              <polyline points="8 6 2 12 8 18" />
-            </svg>
-          </button>
-        </div>
-      </header>
-
-      {/* PAGE 1: HOME — PERSONAL STREAK, DAILY GOAL & MULTIPLIER STATUS */}
+      {/* PAGE 1: HOME */}
       {activeTab === "HOME" && (
-        <div className="animate-swiggy-pop flex flex-1 flex-col gap-4">
-          {/* Multiplier Live Pill Card */}
+        <div className="animate-tab-fade flex flex-1 flex-col gap-4">
           <button
             type="button"
             onClick={() => {
@@ -505,27 +403,23 @@ export function WhoopMobileShell({
             <div>
               <div className="font-mono-tech text-[10px] font-bold uppercase tracking-[0.14em] text-[#00E39D]">
                 {liveMultiplier >= 1.5
-                  ? `🔥 ${liveMultiplier.toFixed(1)}x Peak Rush Live`
-                  : "● ClimbHub Active"}
+                  ? `🔥 ${liveMultiplier.toFixed(1)}x Rush Live`
+                  : "ClimbHub"}
               </div>
               <div className="font-display mt-1 text-lg font-extrabold text-[#E9EFEC]">
-                {isClimbing ? "Climb in Progress →" : "Ready for Floor 1 →"}
+                {isClimbing ? "Climb in Progress →" : "Start Climbing →"}
               </div>
             </div>
-            <ClimbLogoSvg size={40} className="shrink-0" />
+            <ClimbLogoSvg size={38} className="shrink-0" />
           </button>
 
-          {/* Clean 3-Stat Strip: Streak, Floors, Coins */}
           <section className="grid grid-cols-3 gap-2.5">
             <div className="rounded-2xl border border-[#232B28] bg-[#131816] p-3.5 text-center">
               <div className="font-mono-tech text-[10px] uppercase tracking-wider text-[#F2A93B]">
                 Streak
               </div>
               <div className="font-display mt-1 text-2xl font-extrabold text-[#E9EFEC]">
-                {streakDays}
-                <span className="font-mono-tech ml-0.5 text-xs font-normal text-[#879490]">
-                  d
-                </span>
+                {streakDays}d
               </div>
             </div>
 
@@ -548,14 +442,13 @@ export function WhoopMobileShell({
             </div>
           </section>
 
-          {/* Daily Goal Progress Card */}
           <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-4">
             <div className="flex items-center justify-between">
               <span className="font-mono-tech text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
-                Daily Stair Goal
+                Daily Goal
               </span>
               <span className="font-mono-tech text-xs font-bold text-[#00E39D]">
-                {Math.min(12, dailyFloors)} / 12 floors
+                {Math.min(12, dailyFloors)} / 12
               </span>
             </div>
             <div className="mt-2.5 h-2.5 w-full overflow-hidden rounded-full bg-[#0A0D0C]">
@@ -569,31 +462,13 @@ export function WhoopMobileShell({
                 }}
               />
             </div>
-            <div className="mt-2.5 flex items-center justify-between text-[11px] text-[#879490]">
-              <span>Tower Rank #{userRank}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  playTick();
-                  setActiveTab("LEADERBOARD");
-                }}
-                className="font-mono-tech font-semibold text-[#8B6FFF]"
-              >
-                View Rankings →
-              </button>
-            </div>
           </section>
 
-          {/* Recent Climbs */}
-          <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-4">
-            <div className="font-mono-tech mb-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
-              Recent Activity
-            </div>
-            {recentTrips.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[#232B28] bg-[#0A0D0C]/60 px-4 py-5 text-center text-xs text-[#879490]">
-                No climbs logged yet. Tap your card at Floor 1 to start!
+          {recentTrips.length > 0 && (
+            <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-4">
+              <div className="font-mono-tech mb-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
+                Recent
               </div>
-            ) : (
               <div className="flex flex-col gap-2">
                 {recentTrips.slice(0, 4).map((t) => {
                   const ok = t.verdict === "VERIFIED_CLIMB";
@@ -603,7 +478,7 @@ export function WhoopMobileShell({
                       className="flex items-center justify-between rounded-xl border border-[#1B2320] bg-[#0A0D0C] px-3 py-2.5"
                     >
                       <span className="text-xs font-semibold text-[#E9EFEC]">
-                        Floor {t.startFloor} → Floor {t.endFloor}
+                        Floor {t.startFloor} → {t.endFloor}
                       </span>
                       <span
                         className={`font-mono-tech text-xs font-bold ${
@@ -616,30 +491,25 @@ export function WhoopMobileShell({
                   );
                 })}
               </div>
-            )}
-          </section>
+            </section>
+          )}
         </div>
       )}
 
-      {/* PAGE 2: DEDICATED LEADERBOARD & TOWER RANKINGS */}
+      {/* PAGE 2: LEADERBOARD WITH EMPLOYEE PROFILE AVATARS */}
       {activeTab === "LEADERBOARD" && (
-        <div className="animate-swiggy-pop flex flex-1 flex-col gap-4">
+        <div className="animate-tab-fade flex flex-1 flex-col gap-4">
           <div className="flex items-center justify-between">
-            <div>
-              <div className="font-mono-tech text-[10px] font-semibold uppercase tracking-[0.15em] text-[#8B6FFF]">
-                Weekly Standings
-              </div>
-              <h1 className="font-display text-2xl font-extrabold text-[#E9EFEC]">
-                Tower Leaderboard
-              </h1>
-            </div>
+            <h1 className="font-display text-2xl font-extrabold text-[#E9EFEC]">
+              Leaderboard
+            </h1>
             <span className="font-mono-tech rounded-full border border-[#00E39D]/40 bg-[#0B5F45]/40 px-3 py-1 text-xs font-bold text-[#00E39D]">
               #{userRank}
             </span>
           </div>
 
-          {/* Top-3 Visual Podium */}
-          <section className="grid grid-cols-3 items-end gap-2 pt-2">
+          {/* Top-3 Visual Podium with Profile Avatars */}
+          <section className="grid grid-cols-3 items-end gap-2 pt-1">
             {[leaderboard[1], leaderboard[0], leaderboard[2]].map((p, i) => {
               if (!p) return null;
               const isFirst = i === 1;
@@ -656,28 +526,27 @@ export function WhoopMobileShell({
                     isFirst ? "py-4" : "py-3"
                   }`}
                 >
-                  <span className="font-mono-tech text-[10px] font-extrabold text-[#F2A93B]">
+                  <span className="font-mono-tech mb-2 text-[10px] font-extrabold text-[#F2A93B]">
                     #{rankNum}
                   </span>
-                  <div className="font-display mt-1 truncate text-xs font-extrabold text-[#E9EFEC]">
+                  <ProfileAvatar
+                    name={p.name}
+                    avatarId={p.avatarId}
+                    size={isFirst ? 44 : 36}
+                  />
+                  <div className="font-display mt-2 truncate text-xs font-extrabold text-[#E9EFEC]">
                     {p.name}
                   </div>
-                  <div className="font-mono-tech text-[9px] text-[#879490]">
-                    {p.dept}
-                  </div>
-                  <div className="font-display mt-2 text-lg font-extrabold text-[#00E39D]">
+                  <div className="font-display mt-1 text-base font-extrabold text-[#00E39D]">
                     {p.floors}
-                  </div>
-                  <div className="font-mono-tech text-[8.5px] uppercase text-[#879490]">
-                    floors
                   </div>
                 </div>
               );
             })}
           </section>
 
-          {/* Full Ranked List */}
-          <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-3.5">
+          {/* Full Ranked List with Profile Avatars */}
+          <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-3">
             <div className="flex flex-col gap-2">
               {leaderboard.map((row, idx) => {
                 const rank = idx + 1;
@@ -690,10 +559,15 @@ export function WhoopMobileShell({
                         : "border-[#1B2320] bg-[#0A0D0C]/80"
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono-tech grid h-7 w-7 place-items-center rounded-full bg-[#1A211E] text-[11px] font-bold text-[#E9EFEC]">
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-mono-tech w-5 text-center text-[11px] font-bold text-[#879490]">
                         {rank}
                       </span>
+                      <ProfileAvatar
+                        name={row.name}
+                        avatarId={row.avatarId}
+                        size={32}
+                      />
                       <div>
                         <div className="text-xs font-bold text-[#E9EFEC]">
                           {row.name}
@@ -704,18 +578,16 @@ export function WhoopMobileShell({
                           )}
                         </div>
                         <div className="font-mono-tech text-[10px] text-[#879490]">
-                          {row.dept} · {row.streak}d streak
+                          {row.dept}
                         </div>
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <div className="font-display text-sm font-extrabold text-[#E9EFEC]">
-                        {row.floors}
-                      </div>
-                      <div className="font-mono-tech text-[9px] uppercase text-[#879490]">
-                        floors
-                      </div>
+                    <div className="font-display text-sm font-extrabold text-[#E9EFEC]">
+                      {row.floors}{" "}
+                      <span className="font-mono-tech text-[9.5px] font-normal text-[#879490]">
+                        flrs
+                      </span>
                     </div>
                   </div>
                 );
@@ -725,18 +597,44 @@ export function WhoopMobileShell({
         </div>
       )}
 
-      {/* PAGE 3: CLIMBHUB — NON-SCROLLING VIEWPORT-LOCKED TAP-IN / TAP-OUT */}
+      {/* PAGE 3: CLIMBHUB — NON-SCROLLING VIEWPORT, SINGLE ? ICON BESIDE READY TO CLIMB */}
       {activeTab === "CLIMB" && (
         <div
           key={climbStage}
-          className="animate-swiggy-pop flex flex-1 flex-col justify-between overflow-hidden py-1"
+          className="animate-tab-fade flex flex-1 flex-col justify-between overflow-hidden"
         >
-          {/* Minimal Clean Headline Only */}
+          {/* Headline Row with ONLY the single ? How-To icon aligned right beside Ready to Climb */}
           <div className="shrink-0 px-1">
             {climbStage === "READY" && (
               <>
-                <div className="font-mono-tech mb-1 text-xs font-medium text-[#8B6FFF]">
-                  Ready to Climb?
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="font-mono-tech text-xs font-medium text-[#8B6FFF]">
+                    Ready to Climb?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playTick();
+                      setHelpDrawerOpen(true);
+                    }}
+                    aria-label="How NFC works"
+                    className="grid h-7 w-7 place-items-center rounded-full border border-white/10 bg-[#131816] text-[#879490] transition hover:text-[#E9EFEC] active:scale-90"
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                  </button>
                 </div>
                 <h1 className="font-display text-[28px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
                   Tap the Device near a ClimbHub
@@ -745,20 +643,41 @@ export function WhoopMobileShell({
             )}
 
             {climbStage === "CLIMBING" && (
-              <h1 className="font-display mt-2 text-[28px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
-                Start Climbing...
-              </h1>
+              <div className="flex items-center justify-between">
+                <h1 className="font-display text-[28px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
+                  Start Climbing...
+                </h1>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playTick();
+                    setHelpDrawerOpen(true);
+                  }}
+                  aria-label="How NFC works"
+                  className="grid h-7 w-7 place-items-center rounded-full border border-white/10 bg-[#131816] text-[#879490]"
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                </button>
+              </div>
             )}
 
             {climbStage === "EARNED" && (
-              <>
-                <div className="font-mono-tech mb-1 text-xs font-semibold text-[#00E39D]">
-                  +{lastVerdict?.pointsAwarded ?? 0} ClimbCoins
-                </div>
-                <h1 className="font-display text-[28px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
-                  Tap out
-                </h1>
-              </>
+              <h1 className="font-display text-[28px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
+                Tap out
+              </h1>
             )}
 
             {climbStage === "SPOOF" && (
@@ -773,8 +692,19 @@ export function WhoopMobileShell({
             )}
           </div>
 
-          {/* Centerpiece Interactive ClimbHub Emblem */}
-          <div className="flex flex-1 items-center justify-center">
+          {/* Centerpiece Hero + Prominent Points Reward Pop Right Above Purple Emblem */}
+          <div className="relative flex flex-1 flex-col items-center justify-center">
+            {climbStage === "EARNED" && (
+              <div className="animate-spring-check mb-2 flex items-center gap-1.5 rounded-full border border-[#8B6FFF]/60 bg-[#2E2456]/90 px-4 py-1.5 shadow-[0_0_24px_rgba(139,111,255,0.45)]">
+                <span className="font-display text-xl font-extrabold text-[#E9EFEC]">
+                  +{lastVerdict?.pointsAwarded ?? 0}
+                </span>
+                <span className="font-mono-tech text-xs font-bold uppercase text-[#00E39D]">
+                  pts
+                </span>
+              </div>
+            )}
+
             <ClimbHubHero
               mode={climbStage}
               progressRatio={climbProgress}
@@ -809,20 +739,20 @@ export function WhoopMobileShell({
                 : "Try Again"}
             </button>
 
-            <p className="font-mono-tech text-center text-[10px] text-[#879490]/55">
+            <p className="font-mono-tech text-center text-[10px] text-[#879490]/50">
               {webNfcArmed
                 ? "NFC card reader is on"
                 : webNfcSupported
-                ? "NFC ready · tap anywhere to turn on"
-                : "Tap emblem or use ? for card simulator"}
+                ? "NFC ready"
+                : "Tap ? for card simulator"}
             </p>
           </div>
         </div>
       )}
 
-      {/* PAGE 4: REWARDS — EDITORIAL CAFE PHOTOS + CASHBACK & COUPON CODES */}
+      {/* PAGE 4: REWARDS */}
       {activeTab === "REWARDS" && (
-        <div className="animate-swiggy-pop flex flex-1 flex-col gap-4">
+        <div className="animate-tab-fade flex flex-1 flex-col gap-4">
           <section
             className="flex items-center justify-between rounded-2xl border border-[#0B5F45]/70 bg-[#131816] px-4 py-3.5"
             style={{
@@ -832,67 +762,53 @@ export function WhoopMobileShell({
           >
             <div>
               <div className="font-mono-tech text-[9.5px] uppercase tracking-[0.15em] text-[#00E39D]">
-                Your Balance
+                Balance
               </div>
               <div className="font-display text-3xl font-extrabold text-[#E9EFEC]">
                 {walletPoints}{" "}
                 <span className="font-mono-tech text-xs font-medium text-[#879490]">
-                  coins
+                  pts
                 </span>
               </div>
             </div>
-            <div className="text-right">
-              <div className="font-mono-tech text-[10px] text-[#B4C0BB]">
-                {Object.keys(claimedCodes).length} active
-              </div>
-              <div className="font-mono-tech text-[9.5px] text-[#879490]">
-                vouchers
-              </div>
-            </div>
+            <span className="font-mono-tech rounded-full bg-[#0A0D0C] px-3 py-1 text-[10px] text-[#B4C0BB]">
+              {Object.keys(claimedCodes).length} vouchers
+            </span>
           </section>
 
-          <div>
-            <div className="font-mono-tech mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
-              Instant Discounts & Cashback
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {CASHBACK_TIERS.map((tier) => {
-                const claimed =
-                  Boolean(claimedCodes[tier.id]) ||
-                  redeemedIds.includes(tier.id);
-                const canClaim = walletPoints >= tier.cost || claimed;
-                return (
-                  <button
-                    key={tier.id}
-                    type="button"
-                    onClick={() => {
-                      playTick();
-                      setSelectedReward(tier);
-                    }}
-                    disabled={!canClaim}
-                    className={`flex flex-col items-center rounded-2xl border p-2.5 text-center transition active:scale-95 disabled:opacity-45 ${
-                      claimed
-                        ? "border-[#00E39D]/60 bg-[#0B5F45]/30"
-                        : "border-[#232B28] bg-[#131816] hover:border-[#8B6FFF]/60"
-                    }`}
-                  >
-                    <span className="font-display text-sm font-extrabold text-[#E9EFEC]">
-                      {tier.discountLabel}
-                    </span>
-                    <span className="font-mono-tech mt-1 rounded-full bg-[#1A211E] px-2 py-0.5 text-[9px] font-bold text-[#00E39D]">
-                      {claimed ? "VIEW CODE" : `${tier.cost} pts`}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+          <div className="grid grid-cols-3 gap-2">
+            {CASHBACK_TIERS.map((tier) => {
+              const claimed =
+                Boolean(claimedCodes[tier.id]) ||
+                redeemedIds.includes(tier.id);
+              const canClaim = walletPoints >= tier.cost || claimed;
+              return (
+                <button
+                  key={tier.id}
+                  type="button"
+                  onClick={() => {
+                    playTick();
+                    setSelectedReward(tier);
+                  }}
+                  disabled={!canClaim}
+                  className={`flex flex-col items-center rounded-2xl border p-2.5 text-center transition active:scale-95 disabled:opacity-45 ${
+                    claimed
+                      ? "border-[#00E39D]/60 bg-[#0B5F45]/30"
+                      : "border-[#232B28] bg-[#131816]"
+                  }`}
+                >
+                  <span className="font-display text-sm font-extrabold text-[#E9EFEC]">
+                    {tier.discountLabel}
+                  </span>
+                  <span className="font-mono-tech mt-1 rounded-full bg-[#1A211E] px-2 py-0.5 text-[9px] font-bold text-[#00E39D]">
+                    {claimed ? "CODE" : `${tier.cost} pts`}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex flex-col gap-3">
-            <div className="font-mono-tech text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
-              Lobby Café & Kitchen Perks
-            </div>
-
             {CAFE_REWARDS.map((r) => {
               const code = claimedCodes[r.id];
               const claimed = Boolean(code) || redeemedIds.includes(r.id);
@@ -901,18 +817,15 @@ export function WhoopMobileShell({
               return (
                 <div
                   key={r.id}
-                  className="group overflow-hidden rounded-2xl border border-[#232B28] bg-[#131816] shadow-lg transition hover:border-[#2F3B36]"
+                  className="group overflow-hidden rounded-2xl border border-[#232B28] bg-[#131816] shadow-lg"
                 >
                   <div className="relative h-32 w-full overflow-hidden">
                     <img
                       src={r.image}
                       alt={r.title}
-                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                      className="h-full w-full object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-[#131816] via-[#131816]/25 to-transparent" />
-                    <span className="font-mono-tech absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#00E39D] backdrop-blur-md">
-                      {r.tag}
-                    </span>
                     <span className="font-mono-tech absolute right-3 top-3 rounded-full bg-black/65 px-2.5 py-0.5 text-[10px] font-bold text-[#E9EFEC] backdrop-blur-md">
                       {r.cost} pts
                     </span>
@@ -939,12 +852,12 @@ export function WhoopMobileShell({
                         claimed
                           ? "border border-[#00E39D]/50 bg-[#0B5F45]/40 text-[#00E39D]"
                           : canClaim
-                          ? "bg-[#00E39D] text-[#052018] shadow-[0_4px_14px_rgba(0,227,157,0.28)]"
+                          ? "bg-[#00E39D] text-[#052018]"
                           : "border border-[#232B28] bg-[#1A211E] text-[#879490]"
                       }`}
                     >
                       {claimed
-                        ? "View Code"
+                        ? "Code"
                         : canClaim
                         ? "Claim"
                         : `-${r.cost - walletPoints}`}
@@ -962,7 +875,6 @@ export function WhoopMobileShell({
         aria-label="Primary navigation"
         className="fixed bottom-5 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/[0.1] bg-[#131816]/85 p-1.5 shadow-[0_14px_38px_rgba(0,0,0,0.75)] backdrop-blur-xl"
       >
-        {/* 1. Home Icon */}
         <button
           type="button"
           onClick={() => {
@@ -973,7 +885,7 @@ export function WhoopMobileShell({
           className={`grid h-11 w-12 place-items-center rounded-full transition active:scale-90 ${
             activeTab === "HOME"
               ? "bg-[#1F2925] text-[#00E39D]"
-              : "text-[#879490] hover:text-[#E9EFEC]"
+              : "text-[#879490]"
           }`}
         >
           <svg
@@ -990,7 +902,6 @@ export function WhoopMobileShell({
           </svg>
         </button>
 
-        {/* 2. Leaderboard Icon */}
         <button
           type="button"
           onClick={() => {
@@ -1001,7 +912,7 @@ export function WhoopMobileShell({
           className={`grid h-11 w-12 place-items-center rounded-full transition active:scale-90 ${
             activeTab === "LEADERBOARD"
               ? "bg-[#1F2925] text-[#F2A93B]"
-              : "text-[#879490] hover:text-[#E9EFEC]"
+              : "text-[#879490]"
           }`}
         >
           <svg
@@ -1023,7 +934,6 @@ export function WhoopMobileShell({
           </svg>
         </button>
 
-        {/* 3. ClimbCoin Emblem Icon (Main Tap-In / Tap-Out Page) */}
         <button
           type="button"
           onClick={() => {
@@ -1034,13 +944,12 @@ export function WhoopMobileShell({
           className={`grid h-11 w-14 place-items-center rounded-full transition active:scale-90 ${
             activeTab === "CLIMB"
               ? "bg-[#00E39D]/20 ring-1 ring-[#00E39D] shadow-[0_0_18px_rgba(0,227,157,0.35)]"
-              : "bg-[#1A211E] opacity-80 hover:opacity-100"
+              : "bg-[#1A211E] opacity-80"
           }`}
         >
           <ClimbLogoSvg size={24} />
         </button>
 
-        {/* 4. Rewards Icon */}
         <button
           type="button"
           onClick={() => {
@@ -1051,7 +960,7 @@ export function WhoopMobileShell({
           className={`grid h-11 w-12 place-items-center rounded-full transition active:scale-90 ${
             activeTab === "REWARDS"
               ? "bg-[#1F2925] text-[#8B6FFF]"
-              : "text-[#879490] hover:text-[#E9EFEC]"
+              : "text-[#879490]"
           }`}
         >
           <svg
@@ -1072,7 +981,7 @@ export function WhoopMobileShell({
         </button>
       </nav>
 
-      {/* Help (?) Drawer: NFC How-To + 3D Card Visual + Optional Simulator */}
+      {/* Help (?) Drawer */}
       <NfcCardScanModal
         isOpen={helpDrawerOpen}
         onClose={() => setHelpDrawerOpen(false)}
@@ -1090,6 +999,19 @@ export function WhoopMobileShell({
           }
         }}
         lastTagSerial={lastTagSerial}
+      />
+
+      {/* Profile & Settings Sheet */}
+      <SettingsSheet
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        profile={profile}
+        onSaveProfile={onSaveProfile}
+        muted={muted}
+        onToggleMute={onToggleMute}
+        onTestNotification={handleTestNotification}
+        onToggleDevMode={onToggleDevMode}
+        onReplayOnboarding={onEditProfile}
       />
 
       {/* Reward Claim Confirmation & Live Coupon Code Modal */}
