@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
-import { ClimbWordmark } from "@/components/ClimbMark";
+import { ClimbLogoSvg, ClimbWordmark } from "@/components/ClimbMark";
 import {
   DepartmentStats,
   EsgBriefResult,
@@ -53,6 +53,87 @@ function getTapSourceBadge(tapSource?: TapSource): {
     label: "MANUAL",
     className: "border-[#232B28] bg-[#1A211E] text-[#879490]",
   };
+}
+
+function WhoopKpiRingCard({
+  label,
+  value,
+  unit,
+  subtext,
+  ratio,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  unit?: string;
+  subtext: string;
+  ratio: number;
+  accent: string;
+}) {
+  const r = 24;
+  const c = 2 * Math.PI * r;
+  const pct = Math.min(1, Math.max(0.06, ratio));
+  const offset = c * (1 - pct);
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-2xl border border-[#232B28] bg-[#131816] p-4 transition hover:border-[#232B28]/80"
+      style={{
+        backgroundImage: `radial-gradient(circle at 100% 0%, ${accent}14, transparent 58%)`,
+      }}
+    >
+      <div className="min-w-0">
+        <div className="font-mono-tech text-[10px] uppercase tracking-[0.14em] text-[#879490]">
+          {label}
+        </div>
+        <div
+          className="font-display mt-1.5 flex items-baseline gap-1 text-3xl font-extrabold leading-none sm:text-[32px]"
+          style={{ color: accent }}
+        >
+          <span className="font-mono-tech">{value}</span>
+          {unit && (
+            <span className="font-mono-tech text-xs font-medium text-[#B4C0BB]">
+              {unit}
+            </span>
+          )}
+        </div>
+        <div className="font-mono-tech mt-1.5 truncate text-[10.5px] text-[#879490]">
+          {subtext}
+        </div>
+      </div>
+
+      <div className="relative flex h-[60px] w-[60px] shrink-0 items-center justify-center">
+        <svg width="60" height="60" viewBox="0 0 60 60" className="-rotate-90">
+          <circle
+            cx="30"
+            cy="30"
+            r={r}
+            fill="none"
+            stroke="#1A211E"
+            strokeWidth="5.5"
+          />
+          <circle
+            cx="30"
+            cy="30"
+            r={r}
+            fill="none"
+            stroke={accent}
+            strokeWidth="5.5"
+            strokeLinecap="round"
+            strokeDasharray={c}
+            strokeDashoffset={offset}
+            style={{ transition: "stroke-dashoffset 0.5s ease" }}
+          />
+        </svg>
+        <span
+          className="font-mono-tech absolute text-[10px] font-bold"
+          style={{ color: accent }}
+        >
+          {Math.round(pct * 100)}%
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function AccelWaveform({
@@ -399,89 +480,67 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Top Executive KPI Bar */}
-      <section className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="rounded-lg border border-[#232B28] border-l-2 border-l-[#00E39D] bg-[#131816] p-4">
-          <div className="font-mono-tech text-[10px] uppercase tracking-[0.14em] text-[#879490]">
-            Lift Wait Hours Saved
-          </div>
-          <div className="font-display mt-1.5 flex items-baseline gap-1.5 text-3xl font-extrabold text-[#00E39D] sm:text-4xl">
-            <span className="font-mono-tech">{liftWaitHoursSaved}</span>
-            <span className="font-mono-tech text-xs font-medium text-[#B4C0BB]">
-              hrs
-            </span>
-          </div>
-          <div className="font-mono-tech mt-1.5 text-[11px] text-[#879490]">
-            42s peak queue relief / climb
-          </div>
-        </div>
-
-        <div
-          className={`rounded-lg border border-[#232B28] border-l-2 bg-[#131816] p-4 ${
-            activeClimbersPerMin > 25
-              ? "border-l-[#F2A93B]"
-              : "border-l-[#8B6FFF]"
-          }`}
-        >
-          <div className="font-mono-tech text-[10px] uppercase tracking-[0.14em] text-[#879490]">
-            Active Climbers
-          </div>
-          <div
-            className={`font-display mt-1.5 flex items-baseline gap-1.5 text-3xl font-extrabold sm:text-4xl ${
-              activeClimbersPerMin > 25 ? "text-[#F2A93B]" : "text-[#E9EFEC]"
-            }`}
-          >
-            <span className="font-mono-tech">{activeClimbersPerMin}</span>
-            <span className="font-mono-tech text-xs font-medium text-[#B4C0BB]">
-              /min
-            </span>
-          </div>
-          <div className="font-mono-tech mt-1.5 text-[11px] text-[#879490]">
-            Crowd throttle &gt; 25/min
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-[#232B28] border-l-2 border-l-[#F2A93B] bg-[#131816] p-4">
-          <div className="font-mono-tech text-[10px] uppercase tracking-[0.14em] text-[#879490]">
-            Lift Spoofs Blocked
-          </div>
-          <div className="font-display mt-1.5 text-3xl font-extrabold text-[#F2A93B] sm:text-4xl">
-            <span className="font-mono-tech">{totals.rejectedTrips}</span>
-          </div>
-          <div className="font-mono-tech mt-1.5 text-[11px] text-[#879490]">
-            0 pts leaked · 3-signal guard
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-[#232B28] border-l-2 border-l-[#00E39D] bg-[#131816] p-4">
-          <div className="font-mono-tech text-[10px] uppercase tracking-[0.14em] text-[#879490]">
-            Est. kWh Saved
-          </div>
-          <div className="font-display mt-1.5 flex items-baseline gap-1.5 text-3xl font-extrabold text-[#E9EFEC] sm:text-4xl">
-            <span className="font-mono-tech text-[#00E39D]">{estKwhSaved}</span>
-            <span className="font-mono-tech text-xs font-medium text-[#B4C0BB]">
-              kWh
-            </span>
-          </div>
-          <div className="font-mono-tech mt-1.5 text-[11px] text-[#879490]">
-            {totals.totalFloors} verified floors climbed
-          </div>
-        </div>
+      {/* Top Executive KPI Bar (Whoop-Style Circular Rings) */}
+      <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <WhoopKpiRingCard
+          label="Lift Wait Saved"
+          value={liftWaitHoursSaved}
+          unit="hrs"
+          subtext="42s peak queue relief / climb"
+          ratio={Math.min(1, liftWaitHoursSaved / 2.5)}
+          accent="#00E39D"
+        />
+        <WhoopKpiRingCard
+          label="Active Climbers"
+          value={activeClimbersPerMin}
+          unit="/min"
+          subtext="Crowd throttle > 25/min"
+          ratio={Math.min(1, activeClimbersPerMin / 40)}
+          accent={activeClimbersPerMin > 25 ? "#F2A93B" : "#8B6FFF"}
+        />
+        <WhoopKpiRingCard
+          label="Spoofs Blocked"
+          value={totals.rejectedTrips}
+          subtext="0 pts leaked · 3-signal guard"
+          ratio={Math.min(1, totals.rejectedTrips / 10)}
+          accent="#F2A93B"
+        />
+        <WhoopKpiRingCard
+          label="Est. kWh Saved"
+          value={estKwhSaved}
+          unit="kWh"
+          subtext={`${totals.totalFloors} verified floors climbed`}
+          ratio={Math.min(1, estKwhSaved / 2.0)}
+          accent="#00E39D"
+        />
       </section>
 
       {/* Main 3-Column Command Center */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
         {/* Center-Left: Live Phone Sensor Telemetry Waveform + On-Device Triage */}
-        <section className="flex flex-col gap-4 rounded-lg border border-[#232B28] bg-[#131816] p-5 xl:col-span-4">
+        <section className="flex flex-col gap-4 rounded-2xl border border-[#232B28] bg-[#131816] p-5 xl:col-span-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <div className="eyebrow mb-1.5">Live Edge Telemetry</div>
-              <h2 className="font-display text-lg font-bold text-[#E9EFEC]">
-                Phone Sensor Waveform
-              </h2>
+            <div className="flex items-center gap-2.5">
+              <div
+                className={
+                  movementState === "STAIR_CLIMBING"
+                    ? "animate-turbine-fast"
+                    : phoneConnected
+                    ? "animate-turbine-slow"
+                    : ""
+                }
+              >
+                <ClimbLogoSvg size={32} />
+              </div>
+              <div>
+                <div className="eyebrow mb-1">Live Edge Telemetry</div>
+                <h2 className="font-display text-lg font-bold text-[#E9EFEC]">
+                  Phone Sensor Waveform
+                </h2>
+              </div>
             </div>
             <span
-              className={`font-mono-tech rounded border px-2.5 py-1 text-[11px] font-bold ${stateBadgeClass[movementState]}`}
+              className={`font-mono-tech rounded-full border px-2.5 py-1 text-[10.5px] font-bold ${stateBadgeClass[movementState]}`}
             >
               {movementState}
             </span>
@@ -576,7 +635,7 @@ export default function DashboardPage() {
         </section>
 
         {/* Center-Right: Gemini Verification Feed */}
-        <section className="flex flex-col rounded-lg border border-[#232B28] bg-[#131816] p-5 xl:col-span-4">
+        <section className="flex flex-col rounded-2xl border border-[#232B28] bg-[#131816] p-5 xl:col-span-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
               <div className="eyebrow mb-1.5">Gemini 3.6 Flash</div>
@@ -609,7 +668,7 @@ export default function DashboardPage() {
                 return (
                   <article
                     key={trip.id}
-                    className={`rounded border border-[#232B28] border-l-2 bg-[#0A0D0C] p-3.5 ${
+                    className={`animate-swiggy-pop rounded-xl border border-[#232B28] border-l-2 bg-[#0A0D0C] p-3.5 ${
                       passed ? "border-l-[#00E39D]" : "border-l-[#F2A93B]"
                     }`}
                   >
@@ -701,7 +760,7 @@ export default function DashboardPage() {
         {/* Right Column: Dept Leaderboard + Dynamic Multiplier + ESG Brief */}
         <div className="flex flex-col gap-5 xl:col-span-4">
           {/* 1. Anonymized Department Leaderboard */}
-          <section className="rounded-lg border border-[#232B28] bg-[#131816] p-5">
+          <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-display text-lg font-bold text-[#E9EFEC]">
                 Department Leaderboard
@@ -757,7 +816,7 @@ export default function DashboardPage() {
           </section>
 
           {/* 2. Dynamic Multiplier Controls (Demand-Shaping Engine) */}
-          <section className="rounded-lg border border-[#232B28] bg-[#131816] p-5">
+          <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-5">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div>
                 <div className="eyebrow mb-1">Demand-Shaping Engine</div>
@@ -866,7 +925,7 @@ export default function DashboardPage() {
 
           {/* 3. Gemini ESG Executive Brief Panel */}
           <section
-            className="rounded-lg border border-[#0B5F45] bg-[#131816] p-5"
+            className="rounded-2xl border border-[#0B5F45] bg-[#131816] p-5"
             style={{
               backgroundImage:
                 "linear-gradient(160deg, rgba(0,227,157,0.065), rgba(0,227,157,0) 62%)",

@@ -561,17 +561,24 @@ export function WhoopMobileShell({
                 : "Try Stairs Again"}
             </button>
 
-            {webNfcSupported && climbStage === "READY" && (
-              <button
-                type="button"
-                onClick={() => void onArmWebNfc()}
-                className="font-mono-tech text-[10.5px] font-semibold text-[#00E39D] underline-offset-2 hover:underline"
-              >
-                {webNfcArmed
-                  ? "● Hardware NFC Reader Armed"
-                  : "Arm In-Browser NFC Reader"}
-              </button>
-            )}
+            {webNfcSupported &&
+              (climbStage === "READY" || climbStage === "CLIMBING") && (
+                <button
+                  type="button"
+                  onClick={() => void onArmWebNfc()}
+                  className={`font-mono-tech rounded-full border px-3.5 py-1.5 text-[10.5px] font-bold transition active:scale-95 ${
+                    webNfcArmed
+                      ? "border-[#00E39D] bg-[#0B5F45]/40 text-[#00E39D]"
+                      : "border-[#8B6FFF]/60 bg-[#2E2456]/50 text-[#E9EFEC]"
+                  }`}
+                >
+                  {webNfcArmed
+                    ? climbStage === "CLIMBING"
+                      ? "● NFC Armed — Tap Card to Tap Out"
+                      : "● NFC Armed — Tap Card to Tap In"
+                    : "Tap to Arm Phone NFC (ID Card Mode)"}
+                </button>
+              )}
 
             {climbStage === "CLIMBING" && (
               <span className="font-mono-tech text-[10px] text-[#879490]">

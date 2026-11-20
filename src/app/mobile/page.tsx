@@ -228,6 +228,8 @@ function MobileControllerInner() {
   );
   const vertRatioSamplesRef = useRef<number[]>([]);
   const currentVertRatioRef = useRef(0);
+  const latestVertAccelRef = useRef(0);
+  const lastNfcScanAtRef = useRef(0);
   const stepTimestampsRef = useRef<number[]>([]);
   const recentStepPeaksRef = useRef<number[]>([]);
   const lastPeakTimeRef = useRef(0);
@@ -391,6 +393,7 @@ function MobileControllerInner() {
           const aVert = Math.abs(
             (ax * gVec.x + ay * gVec.y + az * gVec.z) / gMag
           );
+          latestVertAccelRef.current = aVert;
           const aHoriz = Math.sqrt(Math.max(0, rawDynamic * rawDynamic - aVert * aVert));
           const frameRatio = aVert / (aVert + aHoriz + 0.05);
           vertRatioSamplesRef.current.push(frameRatio);
@@ -430,9 +433,11 @@ function MobileControllerInner() {
           recentStepPeaksRef.current.shift();
         }
         // Only credit vertical stair elevation when gait has genuine anti-gravity vertical thrust
+        // Requires BOTH vertical dominance >= 48% AND vertical acceleration >= 0.85 m/s^2
         if (
           !gravityVecRef.current ||
-          currentVertRatioRef.current >= 0.48
+          (currentVertRatioRef.current >= 0.48 &&
+            latestVertAccelRef.current >= 0.85)
         ) {
           stairStepsRef.current += 1;
         }
@@ -622,7 +627,8 @@ function MobileControllerInner() {
         rollingCadence,
         bounce,
         isClimbingRef.current,
-        elapsed
+        elapsed,
+        gravityVecRef.current ? currentVertRatioRef.current : 0.6
       );
 
       setCadenceSpm(rollingCadence);
@@ -1090,7 +1096,7 @@ function MobileControllerInner() {
     [cadenceSpm, elapsedSec, submitVerification, verticalBounce]
   );
 
-  // Dual-Mode NFC Readiness #1: Auto-URL Trigger (?anchor=F1&source=nfc or ?anchor=F4&source=nfc or ?floor=1/4)
+  // Dual-Mode NFC Readiness #1: Auto-URL Trigger (?anchor=F1, ?anchor=F4, or single-card ?anchor=AUTO&source=nfc)
   useEffect(() => {
     if (urlTriggerHandledRef.current) return;
     if (!anchorParam && !qrFloorParam) return;
@@ -1112,6 +1118,37 @@ function MobileControllerInner() {
         : qrFloorParam === "4"
         ? "F4"
         : null);
+
+    if (normalizedAnchor === "AUTO") {
+      // Single-card toggle mode: if an active climb exists in localStorage (<10 min old), Tap-Out F4; otherwise Tap-In F1!
+      let hasActiveTrip = false;
+      try {
+        const raw = localStorage.getItem(ACTIVE_TRIP_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as PersistedActiveTrip;
+          if (parsed?.startTime && Date.now() - parsed.startTime < 600000) {
+            hasActiveTrip = true;
+          }
+        }
+      } catch {
+        hasActiveTrip = false;
+      }
+
+      if (hasActiveTrip) {
+        void handleTapOutFloor4({
+          anchorId: "F4",
+          tapSource: resolvedSource,
+          tagSerial: serialParam || "CARD-AUTO",
+        });
+      } else {
+        handleTapInFloor1({
+          anchorId: "F1",
+          tapSource: resolvedSource,
+          tagSerial: serialParam || "CARD-AUTO",
+        });
+      }
+      return;
+    }
 
     if (normalizedAnchor === "F1") {
       handleTapInFloor1({
@@ -1136,6 +1173,7 @@ function MobileControllerInner() {
   ]);
 
   // Dual-Mode NFC Readiness #2: In-Browser Web NFC Hook (NDEFReader)
+  // Supports both programmed NDEF tags AND read-only Mifare Classic 1k ID cards (single-card Tap-In/Tap-Out toggle!)
   const handleArmWebNfc = async () => {
     unlockAudio();
     setErrorMsg(null);
@@ -1143,36 +1181,83 @@ function MobileControllerInner() {
       if (typeof window === "undefined" || !("NDEFReader" in window)) {
         return;
       }
+      if (!sensorsEnabled) {
+        await handleEnableSensors();
+      }
       const NdefCtor = (
         window as unknown as { NDEFReader: new () => NDEFReaderLike }
       ).NDEFReader;
       const reader = new NdefCtor();
       await reader.scan();
       setWebNfcArmed(true);
-      setNfcBanner("WEB NFC ARMED — Hold phone near F1 or F4 door sticker");
+      setNfcBanner("NFC ARMED — Tap card to Tap In (1st) or Tap Out (2nd)");
       playTapIn();
 
-      reader.onreading = (event: NDEFReadingEventLike) => {
-        const text = decodeNdefRecords(event.message.records);
-        const serial = event.serialNumber || null;
+      const triggerToggleFromCard = (
+        explicitAnchor: "F1" | "F4" | "AUTO",
+        serial: string | null
+      ) => {
+        const now = Date.now();
+        if (now - lastNfcScanAtRef.current < 2500) {
+          return; // 2.5s debounce prevents double-trigger while holding card
+        }
+        lastNfcScanAtRef.current = now;
 
-        if (text.includes("F4") || text.includes("FLOOR=4") || text.includes("ANCHOR=F4")) {
+        if (explicitAnchor === "F4") {
           void handleTapOutFloor4({
             anchorId: "F4",
             tapSource: "WEB_NFC",
             tagSerial: serial,
           });
-        } else {
+        } else if (explicitAnchor === "F1") {
           handleTapInFloor1({
             anchorId: "F1",
             tapSource: "WEB_NFC",
             tagSerial: serial,
           });
+        } else {
+          // Single-card prototype toggle: 1st tap starts climb, 2nd tap finishes climb!
+          if (isClimbingRef.current) {
+            void handleTapOutFloor4({
+              anchorId: "F4",
+              tapSource: "WEB_NFC",
+              tagSerial: serial,
+            });
+          } else {
+            handleTapInFloor1({
+              anchorId: "F1",
+              tapSource: "WEB_NFC",
+              tagSerial: serial,
+            });
+          }
         }
       };
 
+      reader.onreading = (event: NDEFReadingEventLike) => {
+        const text = decodeNdefRecords(event.message.records);
+        const serial = event.serialNumber || "NFC-CARD";
+
+        if (
+          text.includes("F4") ||
+          text.includes("FLOOR=4") ||
+          text.includes("ANCHOR=F4")
+        ) {
+          triggerToggleFromCard("F4", serial);
+        } else if (
+          text.includes("F1") ||
+          text.includes("FLOOR=1") ||
+          text.includes("ANCHOR=F1")
+        ) {
+          triggerToggleFromCard("F1", serial);
+        } else {
+          triggerToggleFromCard("AUTO", serial);
+        }
+      };
+
+      // Unformatted Mifare Classic 1k ID cards fire onreadingerror on Chrome Android
+      // Safely treat them as a read-only single-card Tap-In/Tap-Out toggle without modifying card memory!
       reader.onreadingerror = () => {
-        setErrorMsg("Could not read NFC sticker. Hold steady against tag.");
+        triggerToggleFromCard("AUTO", "MIFARE-ID-CARD");
       };
     } catch (err) {
       setWebNfcArmed(false);
