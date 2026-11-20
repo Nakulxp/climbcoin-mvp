@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ClimbHubHero } from "@/components/ClimbHubHero";
 import { ClimbLogoSvg } from "@/components/ClimbMark";
+import { NfcCardScanModal } from "@/components/NfcCardScanModal";
 import { UserLocalProfile } from "@/components/MobileOnboarding";
-import { playTick } from "@/lib/buzzer";
+import { playTapIn, playTick, playVerified } from "@/lib/buzzer";
 import { MovementState, TripRecord } from "@/lib/types";
 
 interface RewardItem {
@@ -129,6 +130,13 @@ interface WhoopMobileShellProps {
   onFinishClimb: () => Promise<void>;
   onResetVerdict: () => void;
   onRedeem: (id: string, cost: number) => void;
+  cardDetectedSignal?: {
+    anchor: "F1" | "F4";
+    serial: string;
+    timestamp: number;
+  } | null;
+  onTriggerCardTap?: (anchor: "F1" | "F4", serial?: string) => void;
+  lastTagSerial?: string | null;
 }
 
 export function WhoopMobileShell({
@@ -161,10 +169,16 @@ export function WhoopMobileShell({
   onFinishClimb,
   onResetVerdict,
   onRedeem,
+  cardDetectedSignal,
+  onTriggerCardTap,
+  lastTagSerial,
 }: WhoopMobileShellProps) {
   const [activeTab, setActiveTab] = useState<"HOME" | "CLIMB" | "REWARDS">(
     "CLIMB"
   );
+  const [nfcModalOpen, setNfcModalOpen] = useState(false);
+  const [detectedSuccess, setDetectedSuccess] = useState(false);
+  const [targetAnchor, setTargetAnchor] = useState<"F1" | "F4">("F1");
 
   // Determine which of the 3 ClimbHub screens to display
   const climbStage: "READY" | "CLIMBING" | "EARNED" | "SPOOF" = isClimbing
@@ -177,14 +191,50 @@ export function WhoopMobileShell({
 
   const climbProgress = Math.min(1, Math.max(0.08, liveElevationM / 10.5));
 
+  // Sync external hardware NFC tap events to the modal with rich animation
+  useEffect(() => {
+    if (cardDetectedSignal) {
+      setTargetAnchor(cardDetectedSignal.anchor);
+      setNfcModalOpen(true);
+      setDetectedSuccess(true);
+      const timer = setTimeout(() => {
+        setNfcModalOpen(false);
+        setDetectedSuccess(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cardDetectedSignal]);
+
+  const handleModalCardTap = (anchor: "F1" | "F4", serial = "2A:72:B5:62") => {
+    setDetectedSuccess(true);
+    if (anchor === "F1") {
+      playTapIn();
+    } else {
+      playVerified();
+    }
+    setTimeout(() => {
+      setNfcModalOpen(false);
+      setDetectedSuccess(false);
+      if (onTriggerCardTap) {
+        onTriggerCardTap(anchor, serial);
+      } else if (anchor === "F1") {
+        onStartClimb();
+      } else {
+        void onFinishClimb();
+      }
+    }, 850);
+  };
+
   const handlePrimaryClimbTap = async () => {
     if (climbStage === "READY") {
       if (!sensorsEnabled) {
         await onEnableSensors();
       }
-      onStartClimb();
+      setTargetAnchor("F1");
+      setNfcModalOpen(true);
     } else if (climbStage === "CLIMBING") {
-      await onFinishClimb();
+      setTargetAnchor("F4");
+      setNfcModalOpen(true);
     } else {
       playTick();
       onResetVerdict();
@@ -561,24 +611,27 @@ export function WhoopMobileShell({
                 : "Try Stairs Again"}
             </button>
 
-            {webNfcSupported &&
-              (climbStage === "READY" || climbStage === "CLIMBING") && (
-                <button
-                  type="button"
-                  onClick={() => void onArmWebNfc()}
-                  className={`font-mono-tech rounded-full border px-3.5 py-1.5 text-[10.5px] font-bold transition active:scale-95 ${
-                    webNfcArmed
-                      ? "border-[#00E39D] bg-[#0B5F45]/40 text-[#00E39D]"
-                      : "border-[#8B6FFF]/60 bg-[#2E2456]/50 text-[#E9EFEC]"
-                  }`}
-                >
-                  {webNfcArmed
-                    ? climbStage === "CLIMBING"
-                      ? "● NFC Armed — Tap Card to Tap Out"
-                      : "● NFC Armed — Tap Card to Tap In"
-                    : "Tap to Arm Phone NFC (ID Card Mode)"}
-                </button>
-              )}
+            {(climbStage === "READY" || climbStage === "CLIMBING") && (
+              <button
+                type="button"
+                onClick={() => {
+                  playTick();
+                  setTargetAnchor(climbStage === "CLIMBING" ? "F4" : "F1");
+                  setNfcModalOpen(true);
+                }}
+                className={`font-mono-tech rounded-full border px-3.5 py-1.5 text-[10.5px] font-bold transition active:scale-95 ${
+                  webNfcArmed
+                    ? "border-[#00E39D] bg-[#0B5F45]/40 text-[#00E39D]"
+                    : "border-[#8B6FFF]/60 bg-[#2E2456]/50 text-[#E9EFEC]"
+                }`}
+              >
+                {webNfcArmed
+                  ? climbStage === "CLIMBING"
+                    ? "● NFC Armed — Hold Card to Phone"
+                    : "● NFC Armed — Hold Card to Phone"
+                  : "⚡ Tap with Physical ID Card (Mifare 1K)"}
+              </button>
+            )}
 
             {climbStage === "CLIMBING" && (
               <span className="font-mono-tech text-[10px] text-[#879490]">
@@ -715,6 +768,24 @@ export function WhoopMobileShell({
           <span>Rewards</span>
         </button>
       </nav>
+
+      {/* Option A Animated Physical NFC ID Card Scan Modal */}
+      <NfcCardScanModal
+        isOpen={nfcModalOpen}
+        onClose={() => {
+          setNfcModalOpen(false);
+          setDetectedSuccess(false);
+        }}
+        targetAnchor={targetAnchor}
+        isClimbing={isClimbing}
+        webNfcSupported={webNfcSupported}
+        webNfcArmed={webNfcArmed}
+        onArmWebNfc={onArmWebNfc}
+        onTriggerCardTap={handleModalCardTap}
+        lastTagSerial={lastTagSerial || cardDetectedSignal?.serial || "2A:72:B5:62"}
+        detectedSuccess={detectedSuccess}
+        buildingName={profile.buildingName}
+      />
     </main>
   );
 }
