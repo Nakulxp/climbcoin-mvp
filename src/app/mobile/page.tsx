@@ -125,9 +125,10 @@ function classifyMovement(
   cadenceSpm: number,
   verticalBounce: number,
   isClimbing: boolean,
-  elapsedSec: number
+  elapsedSec: number,
+  verticalRatio = 0.6
 ): MovementState {
-  if (cadenceSpm >= 55 && verticalBounce >= 0.35) {
+  if (cadenceSpm >= 55 && verticalBounce >= 0.35 && verticalRatio >= 0.48) {
     return "STAIR_CLIMBING";
   }
   if (cadenceSpm >= 28 || verticalBounce >= 0.22) {
@@ -177,6 +178,8 @@ function MobileControllerInner() {
   const [wakeLockActive, setWakeLockActive] = useState(false);
 
   const [steps, setSteps] = useState(0);
+  const [stairSteps, setStairSteps] = useState(0);
+  const [verticalRatio, setVerticalRatio] = useState(0);
   const [cadenceSpm, setCadenceSpm] = useState(0);
   const [verticalBounce, setVerticalBounce] = useState(0);
   const [movementState, setMovementState] = useState<MovementState>("IDLE");
@@ -219,6 +222,12 @@ function MobileControllerInner() {
   const activeTagSerialRef = useRef<string | null>(activeTagSerial);
   const tripStartTimeRef = useRef<number | null>(null);
   const stepsRef = useRef(0);
+  const stairStepsRef = useRef(0);
+  const gravityVecRef = useRef<{ x: number; y: number; z: number } | null>(
+    null
+  );
+  const vertRatioSamplesRef = useRef<number[]>([]);
+  const currentVertRatioRef = useRef(0);
   const stepTimestampsRef = useRef<number[]>([]);
   const recentStepPeaksRef = useRef<number[]>([]);
   const lastPeakTimeRef = useRef(0);
@@ -353,7 +362,13 @@ function MobileControllerInner() {
     imuFramesWindowRef.current = 0;
     let linearSensorActive = false;
 
-    const processDynamicAccel = (rawDynamic: number, sourceLabel: string) => {
+    const processDynamicAccel = (
+      rawDynamic: number,
+      sourceLabel: string,
+      ax = 0,
+      ay = 0,
+      az = 0
+    ) => {
       const now = Date.now();
       totalImuFramesRef.current += 1;
       imuFramesWindowRef.current += 1;
@@ -362,6 +377,31 @@ function MobileControllerInner() {
         setHardwareAvailable(true);
         setImuSourceLabel(sourceLabel);
         setSensorStatus(`${sourceLabel} Live (500ms stream)`);
+      }
+
+      // Compute 3D Gravity-Projected Vertical vs. Horizontal Gait Ratio
+      // True stair climbing pushes mass UP against gravity (verticalRatio >= 0.48)
+      // Flat floor walking pushes mass FORWARD horizontally (verticalRatio ~ 0.25-0.42)
+      const gVec = gravityVecRef.current;
+      if (gVec && (ax !== 0 || ay !== 0 || az !== 0)) {
+        const gMag = Math.sqrt(
+          gVec.x * gVec.x + gVec.y * gVec.y + gVec.z * gVec.z
+        );
+        if (gMag > 1.0) {
+          const aVert = Math.abs(
+            (ax * gVec.x + ay * gVec.y + az * gVec.z) / gMag
+          );
+          const aHoriz = Math.sqrt(Math.max(0, rawDynamic * rawDynamic - aVert * aVert));
+          const frameRatio = aVert / (aVert + aHoriz + 0.05);
+          vertRatioSamplesRef.current.push(frameRatio);
+          if (vertRatioSamplesRef.current.length > 25) {
+            vertRatioSamplesRef.current.shift();
+          }
+          const avgRatio =
+            vertRatioSamplesRef.current.reduce((s, v) => s + v, 0) /
+            vertRatioSamplesRef.current.length;
+          currentVertRatioRef.current = Number(avgRatio.toFixed(2));
+        }
       }
 
       // Light 2-tap EMA keeps footstrike peaks crisp while filtering single-frame noise
@@ -388,6 +428,13 @@ function MobileControllerInner() {
         recentStepPeaksRef.current.push(cleanMag);
         if (recentStepPeaksRef.current.length > 10) {
           recentStepPeaksRef.current.shift();
+        }
+        // Only credit vertical stair elevation when gait has genuine anti-gravity vertical thrust
+        if (
+          !gravityVecRef.current ||
+          currentVertRatioRef.current >= 0.48
+        ) {
+          stairStepsRef.current += 1;
         }
       }
 
@@ -419,9 +466,12 @@ function MobileControllerInner() {
           rollingCadence,
           bounce,
           isClimbingRef.current,
-          elapsed
+          elapsed,
+          gravityVecRef.current ? currentVertRatioRef.current : 0.6
         );
         setSteps(stepsRef.current);
+        setStairSteps(stairStepsRef.current);
+        setVerticalRatio(currentVertRatioRef.current);
         setCadenceSpm(rollingCadence);
         setVerticalBounce(bounce);
         setMovementState(state);
@@ -445,7 +495,7 @@ function MobileControllerInner() {
           const ay = linearSensor?.y ?? 0;
           const az = linearSensor?.z ?? 0;
           const mag = Math.sqrt(ax * ax + ay * ay + az * az);
-          processDynamicAccel(mag, "LinearAccel IMU");
+          processDynamicAccel(mag, "LinearAccel IMU", ax, ay, az);
         };
         linearSensor.onerror = () => {
           linearSensorActive = false;
@@ -456,11 +506,9 @@ function MobileControllerInner() {
       linearSensor = null;
     }
 
-    // Tier 2: Universal DeviceMotionEvent listener (iOS Safari + Android browsers)
+    // Tier 2: Universal DeviceMotionEvent listener (also keeps 3D gravityVecRef calibrated for LinearAccel)
     const handleMotion = (event: DeviceMotionEvent) => {
-      if (linearSensorActive) return; // Avoid double-processing if LinearAccelerationSensor is firing
-
-      let rawDynamic = 0;
+      const g = event.accelerationIncludingGravity;
       const a = event.acceleration;
       const hasHardwareLinear =
         a &&
@@ -469,29 +517,45 @@ function MobileControllerInner() {
         a.z !== null &&
         (a.x !== 0 || a.y !== 0 || a.z !== 0);
 
-      if (hasHardwareLinear && a) {
-        const ax = a.x ?? 0;
-        const ay = a.y ?? 0;
-        const az = a.z ?? 0;
-        rawDynamic = Math.sqrt(ax * ax + ay * ay + az * az);
-        processDynamicAccel(rawDynamic, "DeviceMotion Linear");
-        return;
-      }
-
-      const g = event.accelerationIncludingGravity;
+      // Always maintain 3D gravity vector for vertical vs. horizontal projection
       if (g && (g.x !== null || g.y !== null || g.z !== null)) {
         const gx = g.x ?? 0;
         const gy = g.y ?? 0;
         const gz = g.z ?? 0;
-        const totalMag = Math.sqrt(gx * gx + gy * gy + gz * gz);
-        if (baselineMagRef.current === null) {
-          baselineMagRef.current = totalMag;
+        if (hasHardwareLinear && a) {
+          gravityVecRef.current = {
+            x: gx - (a.x ?? 0),
+            y: gy - (a.y ?? 0),
+            z: gz - (a.z ?? 0),
+          };
+        } else if (!gravityVecRef.current) {
+          gravityVecRef.current = { x: gx, y: gy, z: gz };
         } else {
-          baselineMagRef.current =
-            0.9 * baselineMagRef.current + 0.1 * totalMag;
+          gravityVecRef.current = {
+            x: 0.9 * gravityVecRef.current.x + 0.1 * gx,
+            y: 0.9 * gravityVecRef.current.y + 0.1 * gy,
+            z: 0.9 * gravityVecRef.current.z + 0.1 * gz,
+          };
         }
-        rawDynamic = Math.abs(totalMag - baselineMagRef.current);
-        processDynamicAccel(rawDynamic, "DeviceMotion Gravity");
+      }
+
+      if (linearSensorActive) return;
+
+      if (hasHardwareLinear && a) {
+        const ax = a.x ?? 0;
+        const ay = a.y ?? 0;
+        const az = a.z ?? 0;
+        const rawDynamic = Math.sqrt(ax * ax + ay * ay + az * az);
+        processDynamicAccel(rawDynamic, "DeviceMotion Linear", ax, ay, az);
+        return;
+      }
+
+      if (g && gravityVecRef.current) {
+        const ax = (g.x ?? 0) - gravityVecRef.current.x;
+        const ay = (g.y ?? 0) - gravityVecRef.current.y;
+        const az = (g.z ?? 0) - gravityVecRef.current.z;
+        const rawDynamic = Math.sqrt(ax * ax + ay * ay + az * az);
+        processDynamicAccel(rawDynamic, "DeviceMotion Gravity", ax, ay, az);
       }
     };
 
@@ -761,11 +825,16 @@ function MobileControllerInner() {
 
       const now = Date.now();
       stepsRef.current = 0;
+      stairStepsRef.current = 0;
+      vertRatioSamplesRef.current = [];
+      currentVertRatioRef.current = 0;
       stepTimestampsRef.current = [];
       tripCadenceSamplesRef.current = [];
       tripBounceSamplesRef.current = [];
       tripStartTimeRef.current = now;
       setSteps(0);
+      setStairSteps(0);
+      setVerticalRatio(0);
       setElapsedSec(0);
       setActiveFloor(1);
       setIsClimbing(true);
@@ -982,14 +1051,28 @@ function MobileControllerInner() {
         }),
       });
 
-      // Compute accurate elevation delta:
+      // Compute accurate elevation delta with Flat-Walk Spoof Guard:
       // - Physical NFC/QR door anchors guarantee 3.5m/floor (10.5m for F1->F4)
-      // - Manual full climb (>=35 steps) uses live step-derived elevation (~0.19m/step)
-      // - Short indoor hallway demo walk (8-34 steps) uses anchor-assisted 10.5m
-      const elevationDeltaMeters =
-        isExternalTagScan || totalSteps < 35
-          ? 10.5
-          : Number((totalSteps * 0.19).toFixed(1));
+      // - Manual climb: only stairSteps (with vertical anti-gravity thrust >= 0.48) count!
+      //   If user walked flat on same floor (stairSteps < 5 and verticalRatio < 0.46),
+      //   send actual ~0m stair elevation so Signal 01 catches the flat-walk spoof!
+      const computedStairElevation = Number(
+        (stairStepsRef.current * 0.19).toFixed(1)
+      );
+      const isFlatWalkSpoof =
+        !isExternalTagScan &&
+        totalSteps >= 8 &&
+        stairStepsRef.current < 5 &&
+        Boolean(gravityVecRef.current) &&
+        currentVertRatioRef.current < 0.46;
+
+      const elevationDeltaMeters = isExternalTagScan
+        ? 10.5
+        : isFlatWalkSpoof
+        ? computedStairElevation
+        : stairStepsRef.current >= 35
+        ? computedStairElevation
+        : 10.5;
 
       await submitVerification({
         startFloor: 1,
@@ -1220,8 +1303,8 @@ function MobileControllerInner() {
       ? "#8B6FFF"
       : "#00E39D";
 
-  // Estimated floor & live elevation derived from stair steps (~0.19m vertical rise/step)
-  const liveElevationM = Number((steps * 0.19).toFixed(1));
+  // Estimated floor & live elevation ONLY from verified vertical stair steps (not flat walking!)
+  const liveElevationM = Number((stairSteps * 0.19).toFixed(1));
   const displayFloor = isClimbing
     ? Math.min(4, 1 + Math.floor(liveElevationM / 3.5))
     : activeFloor;
@@ -1571,7 +1654,7 @@ function MobileControllerInner() {
                 imuLiveHz > 0 ? "text-[#00E39D]" : "text-[#F2A93B]"
               }
             >
-              IMU: {imuSourceLabel} {imuLiveHz}Hz ({liveAccelReadout.toFixed(2)} m/s²)
+              IMU: {imuSourceLabel} {imuLiveHz}Hz ({liveAccelReadout.toFixed(2)} m/s² · V:{Math.round(verticalRatio * 100)}%)
             </span>
           )}
           <span className={wakeLockActive ? "text-[#00E39D]" : ""}>

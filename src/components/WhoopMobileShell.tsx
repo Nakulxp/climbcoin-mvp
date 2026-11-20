@@ -575,7 +575,9 @@ export function WhoopMobileShell({
 
             {climbStage === "CLIMBING" && (
               <span className="font-mono-tech text-[10px] text-[#879490]">
-                State: {movementState} · Floor 1 → Floor 4
+                {movementState === "WALKING"
+                  ? "Flat walking detected — climb stairs for elevation"
+                  : `State: ${movementState} · Floor 1 → Floor 4`}
               </span>
             )}
           </div>
