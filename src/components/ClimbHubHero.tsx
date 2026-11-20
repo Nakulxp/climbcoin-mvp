@@ -2,7 +2,7 @@
 
 interface ClimbHubHeroProps {
   mode: "READY" | "CLIMBING" | "EARNED" | "SPOOF";
-  progressRatio?: number; // 0..1 controls how many petals turn purple while climbing
+  progressRatio?: number; // 0..1 controls how many petals fill purple while climbing
   onTap?: () => void;
 }
 
@@ -31,16 +31,17 @@ export function ClimbHubHero({
 
   const glowRgba =
     mode === "EARNED"
-      ? "rgba(139,111,255,0.28)"
+      ? "rgba(139,111,255,0.32)"
       : mode === "SPOOF"
       ? "rgba(242,169,59,0.26)"
       : "rgba(0,227,157,0.24)";
 
+  // Smoothly fills from 1 purple leaf up to all 8 leaves during the 4-floor climb
   const purplePetalsCount =
     mode === "EARNED"
       ? 8
       : mode === "CLIMBING"
-      ? Math.max(1, Math.min(7, Math.round(progressRatio * 8)))
+      ? Math.max(1, Math.min(8, Math.ceil(progressRatio * 8)))
       : 0;
 
   return (
@@ -48,11 +49,11 @@ export function ClimbHubHero({
       type="button"
       onClick={onTap}
       aria-label="ClimbHub interactive emblem"
-      className="group relative mx-auto flex h-[240px] w-[240px] items-center justify-center rounded-full transition-transform duration-200 active:scale-95"
+      className="group relative mx-auto flex h-[252px] w-[252px] items-center justify-center rounded-full transition-transform duration-200 active:scale-95"
     >
       {/* Expanding ambient radar halo */}
       <span
-        className="animate-halo-ripple pointer-events-none absolute inset-4 rounded-[64px] border"
+        className="animate-halo-ripple pointer-events-none absolute inset-4 rounded-[68px] border"
         style={{ borderColor: outerColor }}
       />
       <span
@@ -60,25 +61,24 @@ export function ClimbHubHero({
         style={{ background: glowRgba }}
       />
 
-      {/* User's exact ClimbCoin interlocking frame + 8-petal turbine SVG */}
+      {/* Exact ClimbCoin interlocking frame + 8-petal turbine SVG */}
       <svg
-        width="230"
-        height="228"
+        width="242"
+        height="240"
         viewBox="0 0 135 134"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        className="relative z-10 drop-shadow-[0_14px_30px_rgba(0,0,0,0.65)]"
+        className="relative z-10 drop-shadow-[0_14px_32px_rgba(0,0,0,0.65)]"
       >
-        {/* Exact Interlocking Squircle Frame (Paths 1 & 2 from Logo.svg) */}
         <path
           d="M33.0349 26.6746C32.5637 27.5962 32.1373 28.5452 31.7589 29.5193C29.6854 34.8562 29.6851 41.5693 29.6851 54.9949C29.6851 68.4205 29.6854 75.1335 31.7589 80.4704C34.8629 88.4601 41.1805 94.7786 49.1702 97.8827C54.5071 99.9562 61.2202 99.9565 74.6458 99.9565C88.0713 99.9565 94.7844 99.9561 100.121 97.8827C100.611 97.6924 101.095 97.4887 101.572 97.2745C98.1779 103.912 92.4521 109.116 85.4363 111.842C80.0993 113.916 73.3864 113.916 59.9607 113.916C46.5351 113.916 39.8221 113.916 34.4851 111.842C26.4956 108.738 20.1779 102.42 17.0738 94.4309C15.0003 89.0939 15 82.3808 15 68.9553C15 55.5296 15.0004 48.8167 17.0738 43.4797C19.9876 35.9799 25.7329 29.9529 33.0349 26.6746Z"
           fill={outerColor}
-          style={{ transition: "fill 0.45s ease" }}
+          style={{ transition: "fill 0.5s ease" }}
         />
         <path
           d="M101.595 97.2413C102.066 96.3198 102.492 95.3707 102.871 94.3967C104.944 89.0597 104.945 82.3467 104.945 68.9211C104.945 55.4955 104.944 48.7825 102.871 43.4455C99.7666 35.4558 93.4491 29.1374 85.4594 26.0333C80.1224 23.9598 73.4094 23.9595 59.9838 23.9595C46.5583 23.9595 39.8452 23.9599 34.5082 26.0333C34.0183 26.2236 33.535 26.4273 33.058 26.6415C36.4516 20.0037 42.1775 14.7995 49.1933 12.0738C54.5303 10.0004 61.2432 10 74.6689 10C88.0944 10 94.8075 10.0003 100.144 12.0738C108.134 15.1779 114.452 21.4956 117.556 29.4851C119.629 34.8221 119.63 41.5351 119.63 54.9607C119.63 68.3864 119.629 75.0993 117.556 80.4363C114.642 87.9361 108.897 93.963 101.595 97.2413Z"
           fill={outerColor}
-          style={{ transition: "fill 0.45s ease" }}
+          style={{ transition: "fill 0.5s ease" }}
         />
 
         {/* Center Iconography by Stage */}
@@ -140,10 +140,11 @@ export function ClimbHubHero({
             style={{ transformOrigin: "67.5px 62px" }}
           >
             {PETAL_PATHS.map((d, idx) => {
+              const isPurple = mode !== "SPOOF" && idx < purplePetalsCount;
               const petalFill =
                 mode === "SPOOF"
                   ? "#F2A93B"
-                  : idx < purplePetalsCount
+                  : isPurple
                   ? "#8B6FFF"
                   : "#00E39D";
               return (
@@ -151,7 +152,12 @@ export function ClimbHubHero({
                   key={idx}
                   d={d}
                   fill={petalFill}
-                  style={{ transition: "fill 0.35s ease" }}
+                  style={{
+                    transition: "fill 0.45s ease, filter 0.45s ease",
+                    filter: isPurple
+                      ? "drop-shadow(0 0 4px rgba(139,111,255,0.65))"
+                      : "none",
+                  }}
                 />
               );
             })}
