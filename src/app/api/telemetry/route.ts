@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoomSnapshot, updateLiveTelemetry } from "@/lib/store";
 import { MovementState, TapSource } from "@/lib/types";
+import { handleCorsOptions, withCors, corsHeaders } from "@/lib/cors";
 
 export const dynamic = "force-dynamic";
+
+export async function OPTIONS() {
+  return handleCorsOptions();
+}
 
 const VALID_STATES = new Set<MovementState>([
   "IDLE",
@@ -23,9 +28,9 @@ export async function GET(request: NextRequest) {
   const snapshot = getRoomSnapshot(room);
 
   return NextResponse.json(snapshot, {
-    headers: {
+    headers: withCors({
       "Cache-Control": "no-store, max-age=0",
-    },
+    }),
   });
 }
 
@@ -96,7 +101,7 @@ export async function POST(request: NextRequest) {
         anchorId: room.liveFrame.anchorId,
         tapSource: room.liveFrame.tapSource,
       },
-      { headers: { "Cache-Control": "no-store" } }
+      { headers: withCors({ "Cache-Control": "no-store" }) }
     );
   } catch (error) {
     return NextResponse.json(
@@ -105,7 +110,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error ? error.message : "Invalid telemetry payload",
       },
-      { status: 400 }
+      { status: 400, headers: corsHeaders }
     );
   }
 }

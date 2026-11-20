@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateEsgBriefWithGemini } from "@/lib/gemini";
 import { getRoomSnapshot, updateLiveTelemetry } from "@/lib/store";
+import { handleCorsOptions, withCors, corsHeaders } from "@/lib/cors";
 
 export const dynamic = "force-dynamic";
+
+export async function OPTIONS() {
+  return handleCorsOptions();
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,7 +36,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(brief, {
-      headers: { "Cache-Control": "no-store" },
+      headers: withCors({ "Cache-Control": "no-store" }),
     });
   } catch (error) {
     return NextResponse.json(
@@ -39,7 +44,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error ? error.message : "Failed to generate ESG brief",
       },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }

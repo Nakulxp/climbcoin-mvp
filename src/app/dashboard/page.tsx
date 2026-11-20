@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { ClimbLogoSvg, ClimbWordmark } from "@/components/ClimbMark";
 import { HrAdminDashboard } from "@/components/HrAdminDashboard";
+import { apiUrl } from "@/lib/api-client";
 import {
   DepartmentStats,
   EsgBriefResult,
@@ -298,7 +299,7 @@ export default function DashboardPage() {
       inFlight = true;
       try {
         const res = await fetch(
-          `/api/telemetry?room=${encodeURIComponent(roomCode)}`,
+          apiUrl(`/api/telemetry?room=${encodeURIComponent(roomCode)}`),
           { cache: "no-store" }
         );
         if (!res.ok) return;
@@ -325,7 +326,7 @@ export default function DashboardPage() {
     peakRush?: boolean;
     activeClimbersPerMin?: number;
   }) => {
-    await fetch("/api/telemetry", {
+    await fetch(apiUrl("/api/telemetry"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ roomCode, ...patch }),
@@ -340,7 +341,7 @@ export default function DashboardPage() {
   const handleGenerateEsg = async () => {
     setLoadingEsg(true);
     try {
-      const res = await fetch("/api/esg-brief", {
+      const res = await fetch(apiUrl("/api/esg-brief"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

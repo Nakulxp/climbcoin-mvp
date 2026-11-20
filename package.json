@@ -6,6 +6,7 @@
     "dev": "next dev -H 0.0.0.0",
     "dev:https": "next dev --experimental-https -H 0.0.0.0",
     "build": "next build",
+    "build:export": "node scripts/build-export.mjs",
     "start": "next start",
     "lint": "next lint"
   },

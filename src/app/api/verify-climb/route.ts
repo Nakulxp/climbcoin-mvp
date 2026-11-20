@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyClimbWithGemini } from "@/lib/gemini";
 import { getOrCreateRoom, recordTrip } from "@/lib/store";
+import { handleCorsOptions, withCors, corsHeaders } from "@/lib/cors";
 import {
   DepartmentName,
   TapSource,
@@ -9,6 +10,10 @@ import {
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+export async function OPTIONS() {
+  return handleCorsOptions();
+}
 
 const VALID_DEPARTMENTS = new Set<DepartmentName>([
   "Engineering",
@@ -106,7 +111,7 @@ export async function POST(request: NextRequest) {
     recordTrip(room.roomCode, tripRecord);
 
     return NextResponse.json(tripRecord, {
-      headers: { "Cache-Control": "no-store" },
+      headers: withCors({ "Cache-Control": "no-store" }),
     });
   } catch (error) {
     return NextResponse.json(
@@ -114,7 +119,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error ? error.message : "Failed to verify climb",
       },
-      { status: 400 }
+      { status: 400, headers: corsHeaders }
     );
   }
 }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { ClimbWordmark } from "@/components/ClimbMark";
+import { apiUrl } from "@/lib/api-client";
 
 export function LandingStage() {
   const [roomCode, setRoomCode] = useState("DEMO");
@@ -21,7 +22,7 @@ export function LandingStage() {
 
       let resolvedOrigin = window.location.origin;
       try {
-        const res = await fetch("/api/network-info", { cache: "no-store" });
+        const res = await fetch(apiUrl("/api/network-info"), { cache: "no-store" });
         if (res.ok) {
           const data = (await res.json()) as { lanIp?: string | null };
           if (!cancelled && data.lanIp) {

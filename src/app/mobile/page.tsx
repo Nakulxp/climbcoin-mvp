@@ -25,6 +25,7 @@ import {
   TapSource,
   TripRecord,
 } from "@/lib/types";
+import { apiUrl } from "@/lib/api-client";
 
 interface WakeLockSentinelLike {
   released: boolean;
@@ -281,7 +282,7 @@ function MobileControllerInner() {
     const syncMultiplier = async () => {
       try {
         const res = await fetch(
-          `/api/telemetry?room=${encodeURIComponent(roomCodeRef.current)}`,
+          apiUrl(`/api/telemetry?room=${encodeURIComponent(roomCodeRef.current)}`),
           { cache: "no-store" }
         );
         if (!res.ok) return;
@@ -685,7 +686,7 @@ function MobileControllerInner() {
       }
 
       try {
-        await fetch("/api/telemetry", {
+        await fetch(apiUrl("/api/telemetry"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -889,7 +890,7 @@ function MobileControllerInner() {
         // Ignore storage errors
       }
 
-      void fetch("/api/telemetry", {
+      void fetch(apiUrl("/api/telemetry"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -926,7 +927,7 @@ function MobileControllerInner() {
       setVerifying(true);
       setErrorMsg(null);
       try {
-        const res = await fetch("/api/verify-climb", {
+        const res = await fetch(apiUrl("/api/verify-climb"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1065,7 +1066,7 @@ function MobileControllerInner() {
       setActiveFloor(4);
       tripStartTimeRef.current = null;
 
-      void fetch("/api/telemetry", {
+      void fetch(apiUrl("/api/telemetry"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1326,7 +1327,7 @@ function MobileControllerInner() {
     const waveformSpikes = [1.8, 2.9, 1.4, 3.1, 2.2];
     void Promise.all(
       waveformSpikes.map((spike) =>
-        fetch("/api/telemetry", {
+        fetch(apiUrl("/api/telemetry"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1371,7 +1372,7 @@ function MobileControllerInner() {
 
     void Promise.all(
       [0, 1, 2].map(() =>
-        fetch("/api/telemetry", {
+        fetch(apiUrl("/api/telemetry"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
