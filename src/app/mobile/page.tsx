@@ -211,6 +211,7 @@ function MobileControllerInner() {
   const [walletPoints, setWalletPoints] = useState(420);
   const [streakDays, setStreakDays] = useState(5);
   const [redeemedIds, setRedeemedIds] = useState<string[]>([]);
+  const [liveMultiplier, setLiveMultiplier] = useState(1.0);
 
   // Refs for high-frequency sensor processing without stale closures
   const roomCodeRef = useRef(roomCode);
@@ -273,6 +274,32 @@ function MobileControllerInner() {
   useEffect(() => {
     activeTagSerialRef.current = activeTagSerial;
   }, [activeTagSerial]);
+
+  // Sync live building multiplier from /api/telemetry every 5s so Admin Peak Rush triggers Zomato-style mobile alerts
+  useEffect(() => {
+    let cancelled = false;
+    const syncMultiplier = async () => {
+      try {
+        const res = await fetch(
+          `/api/telemetry?room=${encodeURIComponent(roomCodeRef.current)}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { currentMultiplier?: number };
+        if (!cancelled && typeof data.currentMultiplier === "number") {
+          setLiveMultiplier(data.currentMultiplier);
+        }
+      } catch {
+        // Ignore transient network errors
+      }
+    };
+    void syncMultiplier();
+    const timer = setInterval(() => void syncMultiplier(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [roomCode]);
 
   // Safely check Web NFC support on mount + load local-only user profile + unlock AudioContext
   useEffect(() => {
@@ -1460,6 +1487,7 @@ function MobileControllerInner() {
         walletPoints={walletPoints}
         streakDays={streakDays}
         dailyFloors={dailyFloors}
+        liveMultiplier={liveMultiplier}
         lastVerdict={lastVerdict}
         recentTrips={recentTrips}
         redeemedIds={redeemedIds}

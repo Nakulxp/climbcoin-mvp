@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { ClimbLogoSvg, ClimbWordmark } from "@/components/ClimbMark";
+import { HrAdminDashboard } from "@/components/HrAdminDashboard";
 import {
   DepartmentStats,
   EsgBriefResult,
@@ -261,6 +262,7 @@ function formatClock(input: Date | string | number): string {
 }
 
 export default function DashboardPage() {
+  const [devMode, setDevMode] = useState(false);
   const [roomCode, setRoomCode] = useState("DEMO");
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null);
   const [esgBrief, setEsgBrief] = useState<EsgBriefResult | null>(null);
@@ -413,11 +415,42 @@ export default function DashboardPage() {
           color: "text-[#B4C0BB] border-[#232B28] bg-[#1A211E]",
         };
 
+  if (!devMode) {
+    return (
+      <HrAdminDashboard
+        roomCode={roomCode}
+        totals={totals}
+        departmentStats={sortedDepartments}
+        floorTotals={snapshot?.floorTotals ?? {}}
+        peakRush={peakRush}
+        activeClimbersPerMin={activeClimbersPerMin}
+        currentMultiplier={currentMultiplier}
+        liftWaitHoursSaved={liftWaitHoursSaved}
+        estKwhSaved={estKwhSaved}
+        esgBrief={esgBrief}
+        esgGeneratedAt={esgGeneratedAt}
+        loadingEsg={loadingEsg}
+        onTogglePeakRush={togglePeakRush}
+        onGenerateEsg={handleGenerateEsg}
+        onSwitchToDev={() => setDevMode(true)}
+      />
+    );
+  }
+
   return (
     <main className="mx-auto min-h-screen max-w-[1440px] px-5 py-6 lg:px-8">
       {/* Top Executive Header */}
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-[#1B2320] pb-4">
-        <ClimbWordmark subtitle="FACILITIES & ESG COMMAND CENTER" />
+        <div className="flex items-center gap-3">
+          <ClimbWordmark subtitle="DEVELOPER TELEMETRY & VERIFICATION CONSOLE" />
+          <button
+            type="button"
+            onClick={() => setDevMode(false)}
+            className="font-mono-tech rounded-full border border-[#00E39D]/60 bg-[#0B5F45]/45 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#00E39D] transition hover:bg-[#0B5F45]/75 active:scale-95"
+          >
+            ← HR VIEW
+          </button>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Live Tower Clock */}

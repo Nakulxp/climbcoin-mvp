@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ClimbHubHero } from "@/components/ClimbHubHero";
 import { ClimbLogoSvg } from "@/components/ClimbMark";
 import { NfcCardScanModal } from "@/components/NfcCardScanModal";
@@ -10,6 +10,12 @@ import {
   RewardClaimModal,
 } from "@/components/RewardClaimModal";
 import { playTick } from "@/lib/buzzer";
+import {
+  fireQuirkyBrowserNotification,
+  pickQuirkyAlert,
+  QuirkyAlert,
+  requestBrowserNotificationPermission,
+} from "@/lib/notifications";
 import { MovementState, TripRecord } from "@/lib/types";
 
 const CAFE_REWARDS: ClaimableReward[] = [
@@ -95,7 +101,10 @@ const SEED_LEADERBOARD: Omit<LeaderboardRow, "isUser">[] = [
   { id: "l2", name: "Priya S.", dept: "Product", floors: 19, streak: 9 },
   { id: "l3", name: "Rohan K.", dept: "Design", floors: 15, streak: 7 },
   { id: "l4", name: "Meera T.", dept: "Operations", floors: 11, streak: 4 },
+  { id: "l5", name: "Kabir D.", dept: "Finance", floors: 7, streak: 3 },
 ];
+
+type MobileTab = "HOME" | "LEADERBOARD" | "CLIMB" | "REWARDS";
 
 interface WhoopMobileShellProps {
   profile: UserLocalProfile;
@@ -117,6 +126,7 @@ interface WhoopMobileShellProps {
   walletPoints: number;
   streakDays: number;
   dailyFloors: number;
+  liveMultiplier: number;
   lastVerdict: TripRecord | null;
   recentTrips: TripRecord[];
   redeemedIds: string[];
@@ -147,6 +157,7 @@ export function WhoopMobileShell({
   walletPoints,
   streakDays,
   dailyFloors,
+  liveMultiplier,
   lastVerdict,
   recentTrips,
   redeemedIds,
@@ -160,14 +171,15 @@ export function WhoopMobileShell({
   onTriggerCardTap,
   lastTagSerial,
 }: WhoopMobileShellProps) {
-  const [activeTab, setActiveTab] = useState<"HOME" | "CLIMB" | "REWARDS">(
-    "CLIMB"
-  );
+  const [activeTab, setActiveTab] = useState<MobileTab>("CLIMB");
   const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
   const [selectedReward, setSelectedReward] = useState<ClaimableReward | null>(
     null
   );
   const [claimedCodes, setClaimedCodes] = useState<Record<string, string>>({});
+  const [activeToast, setActiveToast] = useState<QuirkyAlert | null>(null);
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const prevMultiplierRef = useRef<number>(liveMultiplier);
 
   // Determine which of the ClimbHub stages to display
   const climbStage: "READY" | "CLIMBING" | "EARNED" | "SPOOF" = isClimbing
@@ -186,14 +198,12 @@ export function WhoopMobileShell({
     Math.max(0.125, Math.max(timeProgress, elevProgress))
   );
 
-  // Auto-arm NFC by default when on the ClimbHub page (and on first touch if browser requires gesture)
+  // Auto-arm NFC by default when on the ClimbHub page
   useEffect(() => {
     if (activeTab !== "CLIMB" || !webNfcSupported || webNfcArmed) return;
 
-    // Attempt silent immediate arming
     void onArmWebNfc({ silent: true });
 
-    // Also silently arm on the very first touch anywhere on screen (Chrome gesture requirement)
     const onFirstGesture = () => {
       if (!webNfcArmed) {
         void onArmWebNfc({ silent: true });
@@ -202,6 +212,37 @@ export function WhoopMobileShell({
     window.addEventListener("pointerdown", onFirstGesture, { once: true });
     return () => window.removeEventListener("pointerdown", onFirstGesture);
   }, [activeTab, webNfcSupported, webNfcArmed, onArmWebNfc]);
+
+  // Trigger Zomato-style quirky multiplier notification whenever building multiplier changes!
+  useEffect(() => {
+    if (prevMultiplierRef.current !== liveMultiplier) {
+      prevMultiplierRef.current = liveMultiplier;
+      if (liveMultiplier >= 1.5 || liveMultiplier <= 0.8) {
+        const alert = pickQuirkyAlert(liveMultiplier);
+        setActiveToast(alert);
+        fireQuirkyBrowserNotification(alert);
+      }
+    }
+  }, [liveMultiplier]);
+
+  // Auto-dismiss in-app Zomato-style toast after 5.5s
+  useEffect(() => {
+    if (!activeToast) return;
+    const t = setTimeout(() => setActiveToast(null), 5500);
+    return () => clearTimeout(t);
+  }, [activeToast]);
+
+  const handleBellClick = async () => {
+    playTick();
+    const perm = await requestBrowserNotificationPermission();
+    if (perm === "granted") {
+      setNotifEnabled(true);
+    }
+    const previewMultiplier = liveMultiplier >= 1.5 ? liveMultiplier : 2.5;
+    const alert = pickQuirkyAlert(previewMultiplier);
+    setActiveToast(alert);
+    fireQuirkyBrowserNotification(alert);
+  };
 
   // Build live Tower Leaderboard incorporating current user
   const leaderboard = useMemo<LeaderboardRow[]>(() => {
@@ -240,10 +281,62 @@ export function WhoopMobileShell({
     onRedeem(reward.id, reward.cost);
   };
 
+  // Lock viewport strictly to 100dvh with zero scroll on CLIMB page
+  const isLockedViewport = activeTab === "CLIMB";
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-[430px] flex-col justify-between px-5 pb-28 pt-5">
-      {/* Minimal Top Utility Bar: Ultra-discrete icons only on CLIMB; clean bar on HOME/REWARDS */}
-      <header className="mb-3 flex items-center justify-between">
+    <main
+      className={
+        isLockedViewport
+          ? "mx-auto flex h-[100dvh] max-w-[430px] flex-col justify-between overflow-hidden px-5 pb-24 pt-4"
+          : "mx-auto flex min-h-[100dvh] max-w-[430px] flex-col justify-between px-5 pb-28 pt-5"
+      }
+    >
+      {/* Zomato-Style Quirky Multiplier Floating Toast Banner */}
+      {activeToast && (
+        <div className="animate-swiggy-pop fixed left-1/2 top-4 z-50 w-[calc(100%-28px)] max-w-[400px] -translate-x-1/2 rounded-2xl border border-white/15 bg-[#121916]/95 p-3.5 shadow-[0_14px_40px_rgba(0,0,0,0.85)] backdrop-blur-xl">
+          <div className="flex items-start justify-between gap-2.5">
+            <div className="min-w-0">
+              <div
+                className="font-mono-tech text-[9.5px] font-extrabold uppercase tracking-[0.16em]"
+                style={{ color: activeToast.accent }}
+              >
+                {activeToast.tag}
+              </div>
+              <div className="font-display mt-0.5 text-sm font-extrabold text-[#E9EFEC]">
+                {activeToast.title}
+              </div>
+              <p className="mt-0.5 text-[11.5px] leading-snug text-[#B4C0BB]">
+                {activeToast.body}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveToast(null)}
+              aria-label="Dismiss notification"
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white/5 text-[10px] text-[#879490]"
+            >
+              ✕
+            </button>
+          </div>
+          {activeTab !== "CLIMB" && (
+            <button
+              type="button"
+              onClick={() => {
+                playTick();
+                setActiveTab("CLIMB");
+                setActiveToast(null);
+              }}
+              className="font-mono-tech mt-2.5 w-full rounded-full bg-[#00E39D] py-1.5 text-[10.5px] font-extrabold text-[#052018]"
+            >
+              Climb Now →
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Minimal Top Utility Bar: Discrete Icons Only on CLIMB; Clean Bar on Other Tabs */}
+      <header className="mb-2 flex shrink-0 items-center justify-between">
         {activeTab === "CLIMB" ? (
           <div className="h-7" />
         ) : (
@@ -269,6 +362,36 @@ export function WhoopMobileShell({
 
         {/* Minimal Basal Utility Icons */}
         <div className="flex items-center gap-1.5">
+          {/* Zomato-Style Multiplier Alert Bell Icon */}
+          <button
+            type="button"
+            onClick={() => void handleBellClick()}
+            aria-label="Multiplier alerts"
+            title="Enable / Preview Quirky Multiplier Notification"
+            className={`relative grid h-8 w-8 place-items-center rounded-full border bg-[#131816]/80 transition active:scale-90 ${
+              notifEnabled || liveMultiplier >= 1.5
+                ? "border-[#00E39D]/50 text-[#00E39D]"
+                : "border-white/[0.08] text-[#879490] hover:text-[#E9EFEC]"
+            }`}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            {liveMultiplier >= 1.5 && (
+              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#00E39D]" />
+            )}
+          </button>
+
           {/* Help (?) Icon -> Opens NFC How-To & 3D Card Drawer */}
           <button
             type="button"
@@ -335,7 +458,7 @@ export function WhoopMobileShell({
             )}
           </button>
 
-          {/* Subtle DEV icon */}
+          {/* Subtle DEV Icon */}
           <button
             type="button"
             onClick={() => {
@@ -363,9 +486,35 @@ export function WhoopMobileShell({
         </div>
       </header>
 
-      {/* TAB 1: HOME OVERVIEW — STREAK, STATS & TOWER LEADERBOARD (NO LIVE CADENCE) */}
+      {/* PAGE 1: HOME — PERSONAL STREAK, DAILY GOAL & MULTIPLIER STATUS */}
       {activeTab === "HOME" && (
         <div className="animate-swiggy-pop flex flex-1 flex-col gap-4">
+          {/* Multiplier Live Pill Card */}
+          <button
+            type="button"
+            onClick={() => {
+              playTick();
+              setActiveTab("CLIMB");
+            }}
+            className="flex items-center justify-between rounded-2xl border border-[#00E39D]/35 bg-[#131816] p-4 text-left transition active:scale-[0.98]"
+            style={{
+              backgroundImage:
+                "linear-gradient(135deg, rgba(0,227,157,0.14), rgba(139,111,255,0.06) 75%)",
+            }}
+          >
+            <div>
+              <div className="font-mono-tech text-[10px] font-bold uppercase tracking-[0.14em] text-[#00E39D]">
+                {liveMultiplier >= 1.5
+                  ? `🔥 ${liveMultiplier.toFixed(1)}x Peak Rush Live`
+                  : "● ClimbHub Active"}
+              </div>
+              <div className="font-display mt-1 text-lg font-extrabold text-[#E9EFEC]">
+                {isClimbing ? "Climb in Progress →" : "Ready for Floor 1 →"}
+              </div>
+            </div>
+            <ClimbLogoSvg size={40} className="shrink-0" />
+          </button>
+
           {/* Clean 3-Stat Strip: Streak, Floors, Coins */}
           <section className="grid grid-cols-3 gap-2.5">
             <div className="rounded-2xl border border-[#232B28] bg-[#131816] p-3.5 text-center">
@@ -399,54 +548,157 @@ export function WhoopMobileShell({
             </div>
           </section>
 
-          {/* Tower Leaderboard / Ranking Board */}
+          {/* Daily Goal Progress Card */}
           <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <div className="font-mono-tech text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
-                  Tower Leaderboard
-                </div>
-                <div className="font-display text-base font-extrabold text-[#E9EFEC]">
-                  {profile.buildingName.split("·")[0].trim()}
-                </div>
-              </div>
-              <span className="font-mono-tech rounded-full border border-[#8B6FFF]/40 bg-[#2E2456]/60 px-2.5 py-1 text-[10px] font-bold text-[#E9EFEC]">
-                Rank #{userRank}
+            <div className="flex items-center justify-between">
+              <span className="font-mono-tech text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
+                Daily Stair Goal
+              </span>
+              <span className="font-mono-tech text-xs font-bold text-[#00E39D]">
+                {Math.min(12, dailyFloors)} / 12 floors
               </span>
             </div>
+            <div className="mt-2.5 h-2.5 w-full overflow-hidden rounded-full bg-[#0A0D0C]">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#00E39D] to-[#8B6FFF] transition-all duration-500"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    Math.max(10, Math.round((dailyFloors / 12) * 100))
+                  )}%`,
+                }}
+              />
+            </div>
+            <div className="mt-2.5 flex items-center justify-between text-[11px] text-[#879490]">
+              <span>Tower Rank #{userRank}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  playTick();
+                  setActiveTab("LEADERBOARD");
+                }}
+                className="font-mono-tech font-semibold text-[#8B6FFF]"
+              >
+                View Rankings →
+              </button>
+            </div>
+          </section>
 
+          {/* Recent Climbs */}
+          <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-4">
+            <div className="font-mono-tech mb-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
+              Recent Activity
+            </div>
+            {recentTrips.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[#232B28] bg-[#0A0D0C]/60 px-4 py-5 text-center text-xs text-[#879490]">
+                No climbs logged yet. Tap your card at Floor 1 to start!
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {recentTrips.slice(0, 4).map((t) => {
+                  const ok = t.verdict === "VERIFIED_CLIMB";
+                  return (
+                    <div
+                      key={t.id}
+                      className="flex items-center justify-between rounded-xl border border-[#1B2320] bg-[#0A0D0C] px-3 py-2.5"
+                    >
+                      <span className="text-xs font-semibold text-[#E9EFEC]">
+                        Floor {t.startFloor} → Floor {t.endFloor}
+                      </span>
+                      <span
+                        className={`font-mono-tech text-xs font-bold ${
+                          ok ? "text-[#00E39D]" : "text-[#F2A93B]"
+                        }`}
+                      >
+                        {ok ? `+${t.pointsAwarded} pts` : "Lift"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* PAGE 2: DEDICATED LEADERBOARD & TOWER RANKINGS */}
+      {activeTab === "LEADERBOARD" && (
+        <div className="animate-swiggy-pop flex flex-1 flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-mono-tech text-[10px] font-semibold uppercase tracking-[0.15em] text-[#8B6FFF]">
+                Weekly Standings
+              </div>
+              <h1 className="font-display text-2xl font-extrabold text-[#E9EFEC]">
+                Tower Leaderboard
+              </h1>
+            </div>
+            <span className="font-mono-tech rounded-full border border-[#00E39D]/40 bg-[#0B5F45]/40 px-3 py-1 text-xs font-bold text-[#00E39D]">
+              #{userRank}
+            </span>
+          </div>
+
+          {/* Top-3 Visual Podium */}
+          <section className="grid grid-cols-3 items-end gap-2 pt-2">
+            {[leaderboard[1], leaderboard[0], leaderboard[2]].map((p, i) => {
+              if (!p) return null;
+              const isFirst = i === 1;
+              const rankNum = isFirst ? 1 : i === 0 ? 2 : 3;
+              const borderCol = isFirst
+                ? "border-[#F2A93B]/60 bg-[#F2A93B]/10"
+                : i === 0
+                ? "border-white/20 bg-[#131816]"
+                : "border-[#D98B5F]/40 bg-[#131816]";
+              return (
+                <div
+                  key={p.id}
+                  className={`flex flex-col items-center rounded-2xl border p-3 text-center ${borderCol} ${
+                    isFirst ? "py-4" : "py-3"
+                  }`}
+                >
+                  <span className="font-mono-tech text-[10px] font-extrabold text-[#F2A93B]">
+                    #{rankNum}
+                  </span>
+                  <div className="font-display mt-1 truncate text-xs font-extrabold text-[#E9EFEC]">
+                    {p.name}
+                  </div>
+                  <div className="font-mono-tech text-[9px] text-[#879490]">
+                    {p.dept}
+                  </div>
+                  <div className="font-display mt-2 text-lg font-extrabold text-[#00E39D]">
+                    {p.floors}
+                  </div>
+                  <div className="font-mono-tech text-[8.5px] uppercase text-[#879490]">
+                    floors
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+
+          {/* Full Ranked List */}
+          <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-3.5">
             <div className="flex flex-col gap-2">
               {leaderboard.map((row, idx) => {
                 const rank = idx + 1;
-                const medalColor =
-                  rank === 1
-                    ? "text-[#F2A93B] bg-[#F2A93B]/15 border-[#F2A93B]/40"
-                    : rank === 2
-                    ? "text-[#E9EFEC] bg-white/10 border-white/20"
-                    : rank === 3
-                    ? "text-[#D98B5F] bg-[#D98B5F]/15 border-[#D98B5F]/35"
-                    : "text-[#879490] bg-[#1A211E] border-[#232B28]";
-
                 return (
                   <div
                     key={row.id}
-                    className={`flex items-center justify-between rounded-xl border px-3 py-2.5 transition ${
+                    className={`flex items-center justify-between rounded-xl border px-3 py-2.5 ${
                       row.isUser
-                        ? "border-[#00E39D]/50 bg-[#0B5F45]/25"
+                        ? "border-[#00E39D]/55 bg-[#0B5F45]/25"
                         : "border-[#1B2320] bg-[#0A0D0C]/80"
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <span
-                        className={`font-mono-tech grid h-7 w-7 place-items-center rounded-full border text-[11px] font-extrabold ${medalColor}`}
-                      >
+                      <span className="font-mono-tech grid h-7 w-7 place-items-center rounded-full bg-[#1A211E] text-[11px] font-bold text-[#E9EFEC]">
                         {rank}
                       </span>
                       <div>
                         <div className="text-xs font-bold text-[#E9EFEC]">
-                          {row.name}{" "}
+                          {row.name}
                           {row.isUser && (
-                            <span className="font-mono-tech ml-1 text-[9.5px] font-semibold text-[#00E39D]">
+                            <span className="font-mono-tech ml-1.5 text-[9px] font-bold text-[#00E39D]">
                               YOU
                             </span>
                           )}
@@ -470,71 +722,40 @@ export function WhoopMobileShell({
               })}
             </div>
           </section>
-
-          {/* Compact Recent Climbs */}
-          {recentTrips.length > 0 && (
-            <section className="rounded-2xl border border-[#232B28] bg-[#131816] p-4">
-              <div className="font-mono-tech mb-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
-                Recent Climbs
-              </div>
-              <div className="flex flex-col gap-2">
-                {recentTrips.slice(0, 3).map((t) => {
-                  const ok = t.verdict === "VERIFIED_CLIMB";
-                  return (
-                    <div
-                      key={t.id}
-                      className="flex items-center justify-between rounded-xl border border-[#1B2320] bg-[#0A0D0C] px-3 py-2"
-                    >
-                      <span className="text-xs font-semibold text-[#E9EFEC]">
-                        Floor {t.startFloor} → {t.endFloor}
-                      </span>
-                      <span
-                        className={`font-mono-tech text-xs font-bold ${
-                          ok ? "text-[#00E39D]" : "text-[#F2A93B]"
-                        }`}
-                      >
-                        {ok ? `+${t.pointsAwarded} pts` : "Lift"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
         </div>
       )}
 
-      {/* TAB 2: ULTRA-CLEAN 3-STAGE CLIMBHUB (ZERO CLUTTER, AUTO-ARMED NFC) */}
+      {/* PAGE 3: CLIMBHUB — NON-SCROLLING VIEWPORT-LOCKED TAP-IN / TAP-OUT */}
       {activeTab === "CLIMB" && (
         <div
           key={climbStage}
-          className="animate-swiggy-pop flex flex-1 flex-col justify-between py-2"
+          className="animate-swiggy-pop flex flex-1 flex-col justify-between overflow-hidden py-1"
         >
           {/* Minimal Clean Headline Only */}
-          <div className="px-1">
+          <div className="shrink-0 px-1">
             {climbStage === "READY" && (
               <>
-                <div className="font-mono-tech mb-1.5 text-xs font-medium text-[#8B6FFF]">
+                <div className="font-mono-tech mb-1 text-xs font-medium text-[#8B6FFF]">
                   Ready to Climb?
                 </div>
-                <h1 className="font-display text-[30px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
+                <h1 className="font-display text-[28px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
                   Tap the Device near a ClimbHub
                 </h1>
               </>
             )}
 
             {climbStage === "CLIMBING" && (
-              <h1 className="font-display mt-3 text-[30px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
+              <h1 className="font-display mt-2 text-[28px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
                 Start Climbing...
               </h1>
             )}
 
             {climbStage === "EARNED" && (
               <>
-                <div className="font-mono-tech mb-1.5 text-xs font-semibold text-[#00E39D]">
+                <div className="font-mono-tech mb-1 text-xs font-semibold text-[#00E39D]">
                   +{lastVerdict?.pointsAwarded ?? 0} ClimbCoins
                 </div>
-                <h1 className="font-display text-[30px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
+                <h1 className="font-display text-[28px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
                   Tap out
                 </h1>
               </>
@@ -542,10 +763,10 @@ export function WhoopMobileShell({
 
             {climbStage === "SPOOF" && (
               <>
-                <div className="font-mono-tech mb-1.5 text-xs font-semibold text-[#F2A93B]">
+                <div className="font-mono-tech mb-1 text-xs font-semibold text-[#F2A93B]">
                   Lift Detected
                 </div>
-                <h1 className="font-display text-[30px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
+                <h1 className="font-display text-[28px] font-extrabold leading-[1.12] tracking-tight text-[#E9EFEC]">
                   Take the Stairs
                 </h1>
               </>
@@ -553,7 +774,7 @@ export function WhoopMobileShell({
           </div>
 
           {/* Centerpiece Interactive ClimbHub Emblem */}
-          <div className="my-6 flex flex-col items-center justify-center">
+          <div className="flex flex-1 items-center justify-center">
             <ClimbHubHero
               mode={climbStage}
               progressRatio={climbProgress}
@@ -562,12 +783,12 @@ export function WhoopMobileShell({
           </div>
 
           {/* Bottom Pill Action + Low-Opacity NFC Active Micro-Text */}
-          <div className="flex flex-col items-center gap-3 pb-2">
+          <div className="flex shrink-0 flex-col items-center gap-2.5 pb-1">
             <button
               type="button"
               disabled={verifying}
               onClick={() => void handlePrimaryClimbTap()}
-              className={`font-display w-full max-w-[260px] rounded-full border px-6 py-4 text-[17px] font-extrabold tracking-tight shadow-lg transition active:scale-95 disabled:opacity-60 ${
+              className={`font-display w-full max-w-[260px] rounded-full border px-6 py-3.5 text-[17px] font-extrabold tracking-tight shadow-lg transition active:scale-95 disabled:opacity-60 ${
                 climbStage === "READY"
                   ? "border-white/[0.08] bg-[#131816] text-[#E9EFEC]"
                   : climbStage === "CLIMBING"
@@ -588,7 +809,6 @@ export function WhoopMobileShell({
                 : "Try Again"}
             </button>
 
-            {/* Subtle, low-opacity NFC status line at bottom center */}
             <p className="font-mono-tech text-center text-[10px] text-[#879490]/55">
               {webNfcArmed
                 ? "NFC card reader is on"
@@ -600,10 +820,9 @@ export function WhoopMobileShell({
         </div>
       )}
 
-      {/* TAB 3: JUICED-UP REWARDS WITH EDITORIAL CAFE PHOTOS + CASHBACK & COUPON CODES */}
+      {/* PAGE 4: REWARDS — EDITORIAL CAFE PHOTOS + CASHBACK & COUPON CODES */}
       {activeTab === "REWARDS" && (
         <div className="animate-swiggy-pop flex flex-1 flex-col gap-4">
-          {/* Compact Balance Banner */}
           <section
             className="flex items-center justify-between rounded-2xl border border-[#0B5F45]/70 bg-[#131816] px-4 py-3.5"
             style={{
@@ -632,7 +851,6 @@ export function WhoopMobileShell({
             </div>
           </section>
 
-          {/* Instant Coin-to-Cashback & Discount Tiers */}
           <div>
             <div className="font-mono-tech mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
               Instant Discounts & Cashback
@@ -670,7 +888,6 @@ export function WhoopMobileShell({
             </div>
           </div>
 
-          {/* Photo-Rich Café & Dining Reward Cards */}
           <div className="flex flex-col gap-3">
             <div className="font-mono-tech text-[10px] font-semibold uppercase tracking-[0.14em] text-[#879490]">
               Lobby Café & Kitchen Perks
@@ -686,7 +903,6 @@ export function WhoopMobileShell({
                   key={r.id}
                   className="group overflow-hidden rounded-2xl border border-[#232B28] bg-[#131816] shadow-lg transition hover:border-[#2F3B36]"
                 >
-                  {/* Editorial Café Photo */}
                   <div className="relative h-32 w-full overflow-hidden">
                     <img
                       src={r.image}
@@ -702,7 +918,6 @@ export function WhoopMobileShell({
                     </span>
                   </div>
 
-                  {/* Card Footer */}
                   <div className="flex items-center justify-between gap-3 px-3.5 py-3">
                     <div className="min-w-0">
                       <div className="font-display truncate text-sm font-extrabold text-[#E9EFEC]">
@@ -742,28 +957,56 @@ export function WhoopMobileShell({
         </div>
       )}
 
-      {/* FLOATING MINIMAL BASAL-ICON NAV BAR */}
+      {/* 4-PAGE FLOATING MINIMAL BASAL-ICON NAV BAR */}
       <nav
         aria-label="Primary navigation"
-        className="fixed bottom-5 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/[0.1] bg-[#131816]/85 p-1.5 shadow-[0_14px_38px_rgba(0,0,0,0.75)] backdrop-blur-xl"
+        className="fixed bottom-5 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/[0.1] bg-[#131816]/85 p-1.5 shadow-[0_14px_38px_rgba(0,0,0,0.75)] backdrop-blur-xl"
       >
-        {/* Overview / Leaderboard Icon */}
+        {/* 1. Home Icon */}
         <button
           type="button"
           onClick={() => {
             playTick();
             setActiveTab("HOME");
           }}
-          aria-label="Overview & Leaderboard"
-          className={`grid h-11 w-14 place-items-center rounded-full transition active:scale-90 ${
+          aria-label="Home"
+          className={`grid h-11 w-12 place-items-center rounded-full transition active:scale-90 ${
             activeTab === "HOME"
               ? "bg-[#1F2925] text-[#00E39D]"
               : "text-[#879490] hover:text-[#E9EFEC]"
           }`}
         >
           <svg
-            width="20"
-            height="20"
+            width="19"
+            height="19"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V9.5z" />
+          </svg>
+        </button>
+
+        {/* 2. Leaderboard Icon */}
+        <button
+          type="button"
+          onClick={() => {
+            playTick();
+            setActiveTab("LEADERBOARD");
+          }}
+          aria-label="Leaderboard"
+          className={`grid h-11 w-12 place-items-center rounded-full transition active:scale-90 ${
+            activeTab === "LEADERBOARD"
+              ? "bg-[#1F2925] text-[#F2A93B]"
+              : "text-[#879490] hover:text-[#E9EFEC]"
+          }`}
+        >
+          <svg
+            width="19"
+            height="19"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -780,7 +1023,7 @@ export function WhoopMobileShell({
           </svg>
         </button>
 
-        {/* Center ClimbHub Icon */}
+        {/* 3. ClimbCoin Emblem Icon (Main Tap-In / Tap-Out Page) */}
         <button
           type="button"
           onClick={() => {
@@ -788,28 +1031,16 @@ export function WhoopMobileShell({
             setActiveTab("CLIMB");
           }}
           aria-label="ClimbHub"
-          className={`grid h-11 w-16 place-items-center rounded-full transition active:scale-90 ${
+          className={`grid h-11 w-14 place-items-center rounded-full transition active:scale-90 ${
             activeTab === "CLIMB"
-              ? "bg-[#00E39D] text-[#052018] shadow-[0_0_20px_rgba(0,227,157,0.4)]"
-              : "bg-[#1A211E] text-[#E9EFEC]"
+              ? "bg-[#00E39D]/20 ring-1 ring-[#00E39D] shadow-[0_0_18px_rgba(0,227,157,0.35)]"
+              : "bg-[#1A211E] opacity-80 hover:opacity-100"
           }`}
         >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M4 20h4v-4h4v-4h4V8h4" />
-            <path d="M14 4h6v6" />
-          </svg>
+          <ClimbLogoSvg size={24} />
         </button>
 
-        {/* Rewards & Coupons Icon */}
+        {/* 4. Rewards Icon */}
         <button
           type="button"
           onClick={() => {
@@ -817,15 +1048,15 @@ export function WhoopMobileShell({
             setActiveTab("REWARDS");
           }}
           aria-label="Rewards"
-          className={`grid h-11 w-14 place-items-center rounded-full transition active:scale-90 ${
+          className={`grid h-11 w-12 place-items-center rounded-full transition active:scale-90 ${
             activeTab === "REWARDS"
               ? "bg-[#1F2925] text-[#8B6FFF]"
               : "text-[#879490] hover:text-[#E9EFEC]"
           }`}
         >
           <svg
-            width="20"
-            height="20"
+            width="19"
+            height="19"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
